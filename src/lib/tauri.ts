@@ -39,8 +39,8 @@ export function importConnections(path: string) {
   return invoke<ConnectionProfile[]>("import_connections", { path });
 }
 
-export function testConnection(id: string) {
-  return invoke<void>("test_connection", { id });
+export function testConnection(id: string | null, input: ConnectionInput, secret: string | null) {
+  return invoke<void>("test_connection", { id, input, secret });
 }
 
 export function openSession(

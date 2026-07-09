@@ -6,6 +6,7 @@ use crate::secrets;
 use crate::ssh::pty::{SessionCommand, TerminalEvent};
 use crate::ssh::{self};
 use crate::state::{AppState, SessionHandle};
+use crate::storage::{ConnectionInput, ConnectionProfile};
 
 use super::secret_kind_for;
 
@@ -69,15 +70,31 @@ pub fn close_session(state: State<'_, AppState>, session_id: String) -> Result<(
     Ok(())
 }
 
+// Tests connection details as typed in the editor, without persisting anything to the
+// connections store or Credential Manager. `id` is the existing connection's id (edit mode
+// only) — used solely to fall back to its already-saved secret when `secret` is left blank
+// (the "leave blank to keep" convention), never to look up or mutate stored connection fields.
 #[tauri::command]
-pub async fn test_connection(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let uuid = parse_id(&id)?;
-    let profile = {
-        let store = state.connections.lock().unwrap();
-        store.get(&uuid).ok_or_else(|| "connection not found".to_string())?
+pub async fn test_connection(id: Option<String>, input: ConnectionInput, secret: Option<String>) -> Result<(), String> {
+    let profile = ConnectionProfile {
+        id: Uuid::nil(),
+        name: input.name,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        auth_type: input.auth_type,
+        key_path: input.key_path,
+        tags: input.tags,
+        last_used_at: None,
     };
 
-    let secret = secrets::get_secret(&id, &profile.username, secret_kind_for(profile.auth_type))?;
+    let secret = match secret {
+        Some(s) if !s.is_empty() => Some(s),
+        _ => match &id {
+            Some(id) => secrets::get_secret(id, &profile.username, secret_kind_for(profile.auth_type))?,
+            None => None,
+        },
+    };
 
     let session = ssh::client::connect_and_auth(&profile, secret).await.map_err(|e| e.to_string())?;
     let _ = session.disconnect(russh::Disconnect::ByApplication, "", "en").await;

@@ -100,8 +100,8 @@ export function ConnectionEditorDialog({
     }
   }
 
-  async function persist(): Promise<ConnectionProfile> {
-    const input: ConnectionInput = {
+  function toInput(): ConnectionInput {
+    return {
       name: form.name.trim(),
       host: form.host.trim(),
       port: Number(form.port) || 22,
@@ -113,7 +113,10 @@ export function ConnectionEditorDialog({
         .map((t) => t.trim())
         .filter(Boolean),
     };
-    const saved = await saveConnection(connection?.id ?? null, input);
+  }
+
+  async function persist(): Promise<ConnectionProfile> {
+    const saved = await saveConnection(connection?.id ?? null, toInput());
     if (form.secret.trim()) {
       const kind: SecretKind = form.authType === "password" ? "password" : "passphrase";
       await saveCredential(saved.id, saved.username, kind, form.secret.trim());
@@ -140,9 +143,7 @@ export function ConnectionEditorDialog({
     setTestMessage(null);
     setError(null);
     try {
-      const saved = await persist();
-      onSaved(saved);
-      await testConnection(saved.id);
+      await testConnection(connection?.id ?? null, toInput(), form.secret.trim() || null);
       setTestStatus("success");
     } catch (err) {
       setTestStatus("error");

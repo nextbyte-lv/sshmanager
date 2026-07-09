@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Copy, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,6 +10,7 @@ import type { ConnectionProfile } from "@/types/connection";
 interface ConnectionListProps {
   connections: ConnectionProfile[];
   activeId: string | null;
+  activeCounts: Record<string, number>;
   onConnect: (profile: ConnectionProfile) => void;
   onEdit: (profile: ConnectionProfile) => void;
   onDuplicate: (profile: ConnectionProfile) => void;
@@ -20,6 +22,7 @@ interface ConnectionListProps {
 export function ConnectionList({
   connections,
   activeId,
+  activeCounts,
   onConnect,
   onEdit,
   onDuplicate,
@@ -96,7 +99,12 @@ export function ConnectionList({
                       className="min-w-0 flex-1 text-left"
                       onClick={() => onConnect(connection)}
                     >
-                      <div className="truncate text-sm font-medium">{connection.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium">{connection.name}</span>
+                        {!!activeCounts[connection.id] && (
+                          <Badge variant="success">{activeCounts[connection.id]}</Badge>
+                        )}
+                      </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {connection.username}@{connection.host}:{connection.port}
                       </div>

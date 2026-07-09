@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ConnectionEditorDialog } from "@/components/ConnectionEditorDialog";
 import { ConnectionList } from "@/components/ConnectionList";
@@ -52,6 +52,16 @@ function App() {
     void refresh();
   }
 
+  const activeConnectionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tab of tabs) {
+      for (const pane of Object.values(tab.panes)) {
+        counts[pane.connectionId] = (counts[pane.connectionId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [tabs]);
+
   function openNewTab(connection: ConnectionProfile) {
     const tab = createTab(connection);
     setTabs((prev) => [...prev, tab]);
@@ -83,6 +93,7 @@ function App() {
       <ConnectionList
         connections={connections}
         activeId={null}
+        activeCounts={activeConnectionCounts}
         onConnect={openNewTab}
         onEdit={handleEdit}
         onDuplicate={handleDuplicate}
