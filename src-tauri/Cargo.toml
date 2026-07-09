@@ -28,4 +28,5 @@ uuid = { version = "1.23.4", features = ["serde", "v4"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "sync", "io-util", "macros", "time"] }
 thiserror = "2.0.18"
 tauri-plugin-dialog = "2.7.1"
+russh-sftp = "2.3.0"
 

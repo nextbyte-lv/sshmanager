@@ -1,5 +1,6 @@
 pub mod client;
 pub mod pty;
+pub mod sftp;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
@@ -17,4 +18,8 @@ pub enum SshError {
     MissingPassword,
     #[error("this connection has no private key file configured")]
     MissingKeyPath,
+    #[error("sftp error: {0}")]
+    Sftp(russh_sftp::client::error::Error),
+    #[error("local file error: {0}")]
+    LocalIo(#[from] std::io::Error),
 }

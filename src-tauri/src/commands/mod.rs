@@ -1,5 +1,6 @@
 pub mod connections;
 pub mod session;
+pub mod sftp;
 
 use crate::secrets::SecretKind;
 use crate::storage::AuthType;

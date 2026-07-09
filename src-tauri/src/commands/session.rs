@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::secrets;
 use crate::ssh::pty::{SessionCommand, TerminalEvent};
 use crate::ssh::{self};
-use crate::state::AppState;
+use crate::state::{AppState, SessionHandle};
 
 use super::secret_kind_for;
 
@@ -29,12 +29,12 @@ pub async fn open_session(
 
     let secret = secrets::get_secret(&id, &profile.username, secret_kind_for(profile.auth_type))?;
 
-    let tx = ssh::pty::open(profile, secret, cols, rows, on_event)
+    let (cmd_tx, ssh) = ssh::pty::open(profile, secret, cols, rows, on_event)
         .await
         .map_err(|e| e.to_string())?;
 
     let session_id = Uuid::new_v4().to_string();
-    state.sessions.lock().unwrap().insert(session_id.clone(), tx);
+    state.sessions.lock().unwrap().insert(session_id.clone(), SessionHandle { cmd_tx, ssh });
     state.connections.lock().unwrap().touch_last_used(&uuid);
 
     Ok(session_id)
@@ -43,22 +43,29 @@ pub async fn open_session(
 #[tauri::command]
 pub fn send_input(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();
-    let tx = sessions.get(&session_id).ok_or_else(|| "session not found".to_string())?;
-    tx.send(SessionCommand::Write(data.into_bytes())).map_err(|_| "session already closed".to_string())
+    let session = sessions.get(&session_id).ok_or_else(|| "session not found".to_string())?;
+    session
+        .cmd_tx
+        .send(SessionCommand::Write(data.into_bytes()))
+        .map_err(|_| "session already closed".to_string())
 }
 
 #[tauri::command]
 pub fn resize_session(state: State<'_, AppState>, session_id: String, cols: u16, rows: u16) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();
-    let tx = sessions.get(&session_id).ok_or_else(|| "session not found".to_string())?;
-    tx.send(SessionCommand::Resize { cols, rows }).map_err(|_| "session already closed".to_string())
+    let session = sessions.get(&session_id).ok_or_else(|| "session not found".to_string())?;
+    session
+        .cmd_tx
+        .send(SessionCommand::Resize { cols, rows })
+        .map_err(|_| "session already closed".to_string())
 }
 
 #[tauri::command]
 pub fn close_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
-    if let Some(tx) = state.sessions.lock().unwrap().remove(&session_id) {
-        let _ = tx.send(SessionCommand::Close);
+    if let Some(session) = state.sessions.lock().unwrap().remove(&session_id) {
+        let _ = session.cmd_tx.send(SessionCommand::Close);
     }
+    state.sftp.lock().unwrap().remove(&session_id);
     Ok(())
 }
 

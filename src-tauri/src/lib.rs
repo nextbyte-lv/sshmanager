@@ -33,6 +33,13 @@ pub fn run() {
             commands::session::resize_session,
             commands::session::close_session,
             commands::session::test_connection,
+            commands::sftp::sftp_canonicalize,
+            commands::sftp::sftp_list_dir,
+            commands::sftp::sftp_download,
+            commands::sftp::sftp_upload,
+            commands::sftp::sftp_mkdir,
+            commands::sftp::sftp_delete,
+            commands::sftp::sftp_rename,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

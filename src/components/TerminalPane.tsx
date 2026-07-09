@@ -10,12 +10,15 @@ import type { ConnectionProfile, TerminalEvent } from "@/types/connection";
 interface TerminalPaneProps {
   profile: ConnectionProfile;
   onClosed?: (message?: string) => void;
+  onSessionId?: (sessionId: string) => void;
 }
 
-export function TerminalPane({ profile, onClosed }: TerminalPaneProps) {
+export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
+  const onSessionIdRef = useRef(onSessionId);
+  onSessionIdRef.current = onSessionId;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -68,6 +71,7 @@ export function TerminalPane({ profile, onClosed }: TerminalPaneProps) {
           return;
         }
         sessionId = id;
+        onSessionIdRef.current?.(id);
       })
       .catch((err) => {
         term.write(`\r\n\x1b[31mFailed to connect: ${String(err)}\x1b[0m\r\n`);

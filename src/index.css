@@ -157,3 +157,24 @@
 .sshmanager-mosaic .mosaic-split:hover {
   background: var(--ring);
 }
+
+/* Native scrollbars default to a light OS theme regardless of the app's dark
+   theme. Style them globally; components using shadcn's ScrollArea (a
+   custom-drawn scrollbar, not a native one) are unaffected by this. */
+* {
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}

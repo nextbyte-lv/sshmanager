@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use russh::ChannelMsg;
 use serde::Serialize;
 use tauri::ipc::Channel as IpcChannel;
@@ -27,8 +29,8 @@ pub async fn open(
     cols: u16,
     rows: u16,
     on_event: IpcChannel<TerminalEvent>,
-) -> Result<mpsc::UnboundedSender<SessionCommand>, SshError> {
-    let session = client::connect_and_auth(&profile, secret).await?;
+) -> Result<(mpsc::UnboundedSender<SessionCommand>, Arc<russh::client::Handle<client::Client>>), SshError> {
+    let session = Arc::new(client::connect_and_auth(&profile, secret).await?);
     let channel = session.channel_open_session().await.map_err(SshError::Channel)?;
     channel
         .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
@@ -37,8 +39,10 @@ pub async fn open(
     channel.request_shell(true).await.map_err(SshError::Channel)?;
 
     let (tx, mut rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let task_session = session.clone();
 
     tokio::spawn(async move {
+        let session = task_session;
         let mut channel = channel;
         loop {
             tokio::select! {
@@ -89,5 +93,5 @@ pub async fn open(
         let _ = session.disconnect(russh::Disconnect::ByApplication, "", "en").await;
     });
 
-    Ok(tx)
+    Ok((tx, session))
 }

@@ -72,3 +72,21 @@ window event. If the planned SFTP panel drag-and-drop upload
 (drag a file from Explorer onto the app) turns out to depend on that Tauri
 event rather than the DOM's own `drop` handler, this setting will need
 reconciling — check when building that feature.
+**Resolved:** when building the SFTP panel, downgraded drag-and-drop upload to
+file-picker buttons specifically to avoid re-enabling `dragDropEnabled` and
+re-breaking pane drag. Decided with the user rather than silently trading one
+already-shipped feature for another.
+
+## Relative-path shorthand (`.`) makes a bad navigation root
+Built the SFTP browser's directory navigation using SFTP's `.`
+(server-resolves-relative-to-login-directory) as the starting/"root" path,
+with an explicit ceiling: going "up" from `.` just returned `.` again. Result:
+no way to navigate above the home directory at all — the user's first
+reaction was to wonder if they needed a different account, when it was
+actually just a client-side bug (real filesystem permissions were never
+involved).
+**Rule:** relative-path shorthands are fine for the *first* lookup, but don't
+build ongoing navigation state machine off them — resolve to a real absolute
+path once (here: `sftp.canonicalize(".")`) and do all subsequent join/parent
+logic in absolute-path terms, which have a natural, real ceiling (`/`) instead
+of an artificial one you have to invent and get wrong.

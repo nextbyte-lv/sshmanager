@@ -1,9 +1,8 @@
-import { Mosaic, MosaicWindow, type MosaicBranch, type MosaicDirection, type MosaicNode } from "react-mosaic-component";
+import { Mosaic, type MosaicBranch, type MosaicDirection, type MosaicNode } from "react-mosaic-component";
 import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { PaneToolbar } from "@/components/PaneToolbar";
-import { TerminalPane } from "@/components/TerminalPane";
+import { PaneLeaf } from "@/components/PaneLeaf";
 import { removePane, splitPane } from "@/lib/workspace";
 import type { ConnectionProfile } from "@/types/connection";
 import type { Tab } from "@/types/workspace";
@@ -113,19 +112,14 @@ function TabMosaic({ tab, connections, onUpdate }: TabMosaicProps) {
         }
 
         return (
-          <MosaicWindow<string>
+          <PaneLeaf
+            key={paneId}
             path={path}
-            title={connection.name}
-            toolbarControls={
-              <PaneToolbar
-                connections={connections}
-                onSplit={(direction, conn) => handleSplit(path, direction, conn)}
-                onClose={() => handleClosePane(path)}
-              />
-            }
-          >
-            <TerminalPane key={paneId} profile={connection} onClosed={() => handleClosePane(path)} />
-          </MosaicWindow>
+            connection={connection}
+            connections={connections}
+            onSplit={(direction, conn) => handleSplit(path, direction, conn)}
+            onClose={() => handleClosePane(path)}
+          />
         );
       }}
     />

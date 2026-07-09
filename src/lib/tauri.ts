@@ -5,6 +5,7 @@ import type {
   SecretKind,
   TerminalEvent,
 } from "@/types/connection";
+import type { SftpEntry } from "@/types/sftp";
 
 export function listConnections() {
   return invoke<ConnectionProfile[]>("list_connections");
@@ -55,4 +56,32 @@ export function resizeSession(sessionId: string, cols: number, rows: number) {
 
 export function closeSession(sessionId: string) {
   return invoke<void>("close_session", { sessionId });
+}
+
+export function sftpCanonicalize(sessionId: string, path: string) {
+  return invoke<string>("sftp_canonicalize", { sessionId, path });
+}
+
+export function sftpListDir(sessionId: string, path: string) {
+  return invoke<SftpEntry[]>("sftp_list_dir", { sessionId, path });
+}
+
+export function sftpDownload(sessionId: string, remotePath: string, localPath: string) {
+  return invoke<void>("sftp_download", { sessionId, remotePath, localPath });
+}
+
+export function sftpUpload(sessionId: string, localPath: string, remotePath: string) {
+  return invoke<void>("sftp_upload", { sessionId, localPath, remotePath });
+}
+
+export function sftpMkdir(sessionId: string, path: string) {
+  return invoke<void>("sftp_mkdir", { sessionId, path });
+}
+
+export function sftpDelete(sessionId: string, path: string, isDir: boolean) {
+  return invoke<void>("sftp_delete", { sessionId, path, isDir });
+}
+
+export function sftpRename(sessionId: string, from: string, to: string) {
+  return invoke<void>("sftp_rename", { sessionId, from, to });
 }
