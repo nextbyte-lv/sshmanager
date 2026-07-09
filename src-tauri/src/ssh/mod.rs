@@ -22,4 +22,6 @@ pub enum SshError {
     Sftp(russh_sftp::client::error::Error),
     #[error("local file error: {0}")]
     LocalIo(#[from] std::io::Error),
+    #[error("file transfer error: {0}")]
+    Transfer(std::io::Error),
 }

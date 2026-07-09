@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
-import { ArrowUp, File, Folder, FolderPlus, HardDrive, Pencil, RefreshCw, Terminal, Trash2, Upload } from "lucide-react";
+import {
+  ArrowUp,
+  File,
+  Folder,
+  FolderPlus,
+  FolderUp,
+  HardDrive,
+  Pencil,
+  RefreshCw,
+  Terminal,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +25,16 @@ import {
   sftpRename,
   sftpUpload,
 } from "@/lib/tauri";
-import type { SftpEntry } from "@/types/sftp";
+import type { SftpEntry, UploadEvent } from "@/types/sftp";
+
+interface UploadProgress {
+  currentPath: string;
+  bytesDone: number;
+  totalBytes: number;
+  uploaded: number;
+  skipped: number;
+  failed: number;
+}
 
 interface SftpPanelProps {
   sessionId: string;
@@ -53,6 +74,7 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
 
   useEffect(() => {
     sftpCanonicalize(sessionId, ".")
@@ -79,19 +101,56 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
     void sendInput(sessionId, `cd ${shellQuote(path)}\n`);
   }
 
-  async function handleUpload() {
-    if (path === null) return;
-    const selected = await openFileDialog({ multiple: true, title: "Upload to " + path });
-    const localPaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+  function handleUploadEvent(event: UploadEvent) {
+    if (event.type === "file_error") {
+      setError(event.message);
+    }
+    setUploadProgress((prev) => {
+      if (!prev) return prev;
+      switch (event.type) {
+        case "started":
+          return { ...prev, currentPath: event.path, bytesDone: 0, totalBytes: event.total_bytes };
+        case "progress":
+          return { ...prev, currentPath: event.path, bytesDone: event.bytes_done, totalBytes: event.total_bytes };
+        case "skipped":
+          return { ...prev, skipped: prev.skipped + 1 };
+        case "file_done":
+          return { ...prev, uploaded: prev.uploaded + 1 };
+        case "file_error":
+          return { ...prev, failed: prev.failed + 1 };
+        case "done":
+          return prev;
+      }
+    });
+  }
+
+  async function uploadPaths(localPaths: string[]) {
+    if (path === null || localPaths.length === 0) return;
+    setUploadProgress({ currentPath: "", bytesDone: 0, totalBytes: 0, uploaded: 0, skipped: 0, failed: 0 });
     for (const localPath of localPaths) {
       const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
       try {
-        await sftpUpload(sessionId, localPath, joinPath(path, fileName));
+        await sftpUpload(sessionId, localPath, joinPath(path, fileName), handleUploadEvent);
       } catch (err) {
         setError(String(err));
       }
     }
+    setUploadProgress(null);
     refresh();
+  }
+
+  async function handleUpload() {
+    if (path === null) return;
+    const selected = await openFileDialog({ multiple: true, title: "Upload to " + path });
+    const localPaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    await uploadPaths(localPaths);
+  }
+
+  async function handleUploadFolder() {
+    if (path === null) return;
+    const selected = await openFileDialog({ directory: true, multiple: true, title: "Upload folder to " + path });
+    const localPaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    await uploadPaths(localPaths);
   }
 
   async function handleDownload(entry: SftpEntry) {
@@ -159,8 +218,23 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
         <Button size="icon-xs" variant="ghost" title="New folder" onClick={handleNewFolder}>
           <FolderPlus />
         </Button>
-        <Button size="icon-xs" variant="ghost" title="Upload" onClick={handleUpload}>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          title="Upload files"
+          disabled={uploadProgress !== null}
+          onClick={handleUpload}
+        >
           <Upload />
+        </Button>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          title="Upload folder"
+          disabled={uploadProgress !== null}
+          onClick={handleUploadFolder}
+        >
+          <FolderUp />
         </Button>
         <Button size="icon-xs" variant="ghost" title="cd here in terminal" onClick={handleCdHere}>
           <Terminal />
@@ -168,14 +242,18 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
       </div>
 
       <div className="flex items-center gap-0.5 overflow-x-auto border-b border-border px-2 py-1 text-xs">
-        <button className="text-muted-foreground hover:text-foreground" onClick={() => setPath("/")} title="/">
+        <button
+          className="cursor-pointer text-muted-foreground hover:text-foreground"
+          onClick={() => setPath("/")}
+          title="/"
+        >
           <HardDrive className="size-3.5" />
         </button>
         {segments.map((segment, i) => (
           <span key={i} className="flex items-center gap-0.5">
             <span className="text-muted-foreground">/</span>
             <button
-              className="text-muted-foreground hover:text-foreground"
+              className="cursor-pointer text-muted-foreground hover:text-foreground"
               onClick={() => setPath("/" + segments.slice(0, i + 1).join("/"))}
             >
               {segment}
@@ -183,6 +261,31 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
           </span>
         ))}
       </div>
+
+      {uploadProgress && (
+        <div className="border-b border-border px-2 py-1 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate">
+              {uploadProgress.currentPath ? uploadProgress.currentPath.split("/").pop() : "Uploading…"}
+            </span>
+            <span className="shrink-0">
+              {uploadProgress.uploaded} uploaded, {uploadProgress.skipped} skipped
+              {uploadProgress.failed > 0 ? `, ${uploadProgress.failed} failed` : ""}
+            </span>
+          </div>
+          <div className="mt-1 h-1 w-full overflow-hidden rounded bg-muted">
+            <div
+              className="h-full bg-primary transition-[width]"
+              style={{
+                width:
+                  uploadProgress.totalBytes > 0
+                    ? `${Math.round((uploadProgress.bytesDone / uploadProgress.totalBytes) * 100)}%`
+                    : "0%",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {error && <p className="border-b border-border px-2 py-1 text-xs text-destructive">{error}</p>}
 

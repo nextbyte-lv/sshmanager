@@ -1,9 +1,11 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use russh_sftp::client::SftpSession;
+use tauri::ipc::Channel;
 use tauri::State;
 
-use crate::ssh::sftp::{self, SftpEntry};
+use crate::ssh::sftp::{self, SftpEntry, UploadEvent};
 use crate::state::AppState;
 
 async fn get_sftp(state: &AppState, session_id: &str) -> Result<Arc<SftpSession>, String> {
@@ -55,9 +57,14 @@ pub async fn sftp_upload(
     session_id: String,
     local_path: String,
     remote_path: String,
+    on_event: Channel<UploadEvent>,
 ) -> Result<(), String> {
     let session = get_sftp(&state, &session_id).await?;
-    sftp::upload(&session, &local_path, &remote_path).await.map_err(|e| e.to_string())
+    sftp::upload_path(&session, Path::new(&local_path), &remote_path, &|event| {
+        let _ = on_event.send(event);
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

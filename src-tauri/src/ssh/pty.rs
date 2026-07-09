@@ -13,8 +13,8 @@ use crate::storage::ConnectionProfile;
 
 use super::{client, SshError};
 
-const MAX_RECONNECT_ATTEMPTS: u32 = 5;
-const RECONNECT_DELAY: Duration = Duration::from_secs(2);
+const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 
 pub enum SessionCommand {
     Write(Vec<u8>),
