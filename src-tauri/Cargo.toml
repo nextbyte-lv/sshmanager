@@ -1,0 +1,31 @@
+[package]
+name = "sshmanager"
+version = "0.1.0"
+description = "Personal SSH/SFTP session manager"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "sshmanager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+russh = { version = "0.62.2", default-features = false, features = ["ring", "flate2", "rsa"] }
+keyring = "4.1.4"
+uuid = { version = "1.23.4", features = ["serde", "v4"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "sync", "io-util", "macros", "time"] }
+thiserror = "2.0.18"
+tauri-plugin-dialog = "2.7.1"
+
