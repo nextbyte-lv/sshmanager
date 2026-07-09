@@ -8,11 +8,15 @@ auto-update, and no multi-user/cloud features are planned.
 
 ## Status
 
-**Phase 1 (this build):** connection list + editor, password or private-key
-auth, one live xterm.js terminal per connection. See `tasks/todo.md` for what's
-done and what's still ahead — split-pane tiling, tabs, an SFTP browser panel,
-auto-reconnect, and packaging into a standalone installer are deferred to later
-phases.
+Built so far: connection list + editor (password or private-key auth),
+tabs each holding their own resizable split-pane grid of live terminals,
+drag-to-rearrange panes, and a per-pane SFTP browser panel that shares the
+same SSH connection as its terminal (no second login). Packaged into a
+standalone Windows installer (see below). Still ahead: auto-reconnect with
+backoff. See `tasks/todo.md` for the full phase-by-phase build log and
+`tasks/lessons.md` for gotchas already hit and fixed — read that before
+touching `russh`, `react-mosaic-component`, or Tauri's window/drag-and-drop
+config.
 
 ## Running it
 
@@ -33,7 +37,13 @@ To produce a standalone Windows build:
 npm run tauri build
 ```
 
-The `.exe`/installer land under `src-tauri/target/release/bundle/`.
+This produces:
+- `src-tauri/target/release/sshmanager.exe` — standalone exe, just run it
+- `src-tauri/target/release/bundle/msi/SshManager_<version>_x64_en-US.msi` — MSI installer
+- `src-tauri/target/release/bundle/nsis/SshManager_<version>_x64-setup.exe` — NSIS installer
+
+No signing/notarization — Windows SmartScreen will warn on first run of the
+installers; that's expected for an unsigned personal build.
 
 ## Where things are stored
 
@@ -53,9 +63,17 @@ entirely on Windows' own account-bound credential store.
 
 ## Project layout
 
-- `src/` — React/TypeScript frontend (components, xterm.js wiring, Tauri IPC calls)
+- `src/` — React/TypeScript frontend
+  - `components/` — `ConnectionList`, `ConnectionEditorDialog`, `Workspace` (tab bar + per-tab pane grid), `PaneLeaf` (terminal + toggleable SFTP panel + toolbar), `TerminalPane`, `SftpPanel`
+  - `lib/workspace.ts` — pure tab/pane tree helpers (create/split/remove) for the `react-mosaic-component` layout
+  - `lib/tauri.ts` — typed wrappers around every Tauri command
+  - `types/` — shared frontend types mirroring the Rust DTOs
 - `src-tauri/src/` — Rust backend
   - `storage/` — connection metadata JSON store
   - `secrets/` — Windows Credential Manager wrapper
-  - `ssh/` — russh client/auth and PTY session handling
+  - `ssh/` — russh client/auth, PTY session handling, SFTP (shares the terminal's connection)
   - `commands/` — Tauri commands exposed to the frontend
+  - `state.rs` — in-memory session registry (SSH handles + SFTP session cache)
+
+See `CLAUDE.md` for the deeper architecture notes (session-sharing model,
+why tabs are hidden-not-unmounted, Windows-specific build traps).

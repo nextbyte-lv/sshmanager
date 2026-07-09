@@ -28,6 +28,8 @@ pub fn run() {
             commands::connections::duplicate_connection,
             commands::connections::save_credential,
             commands::connections::has_credential,
+            commands::connections::export_connections,
+            commands::connections::import_connections,
             commands::session::open_session,
             commands::session::send_input,
             commands::session::resize_session,

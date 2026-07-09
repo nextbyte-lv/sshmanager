@@ -31,6 +31,14 @@ export function hasCredential(id: string, username: string, kind: SecretKind) {
   return invoke<boolean>("has_credential", { id, username, kind });
 }
 
+export function exportConnections(path: string, ids: string[] | null, includeSecrets: boolean) {
+  return invoke<void>("export_connections", { path, ids, includeSecrets });
+}
+
+export function importConnections(path: string) {
+  return invoke<ConnectionProfile[]>("import_connections", { path });
+}
+
 export function testConnection(id: string) {
   return invoke<void>("test_connection", { id });
 }

@@ -1,3 +1,5 @@
 mod connections_store;
 
-pub use connections_store::{AuthType, ConnectionInput, ConnectionProfile, ConnectionsStore};
+pub use connections_store::{
+    AuthType, ConnectionInput, ConnectionProfile, ConnectionsExportFile, ConnectionsStore, ExportedConnection,
+};

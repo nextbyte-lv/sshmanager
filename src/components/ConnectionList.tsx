@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Copy, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ interface ConnectionListProps {
   onDuplicate: (profile: ConnectionProfile) => void;
   onDelete: (profile: ConnectionProfile) => void;
   onAdd: () => void;
+  onOpenSettings: () => void;
 }
 
 export function ConnectionList({
@@ -24,6 +25,7 @@ export function ConnectionList({
   onDuplicate,
   onDelete,
   onAdd,
+  onOpenSettings,
 }: ConnectionListProps) {
   const [query, setQuery] = useState("");
 
@@ -65,6 +67,9 @@ export function ConnectionList({
         </div>
         <Button size="icon-sm" variant="outline" onClick={onAdd} title="Add connection">
           <Plus />
+        </Button>
+        <Button size="icon-sm" variant="outline" onClick={onOpenSettings} title="Import / export connections">
+          <Settings />
         </Button>
       </div>
 

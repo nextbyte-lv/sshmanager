@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConnectionEditorDialog } from "@/components/ConnectionEditorDialog";
 import { ConnectionList } from "@/components/ConnectionList";
+import { ConnectionsSettingsDialog } from "@/components/ConnectionsSettingsDialog";
 import { Workspace } from "@/components/Workspace";
 import { deleteConnection, duplicateConnection, listConnections } from "@/lib/tauri";
 import { createTab } from "@/lib/workspace";
@@ -14,6 +15,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ConnectionProfile | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function refresh() {
     setConnections(await listConnections());
@@ -86,6 +88,7 @@ function App() {
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         onAdd={handleAdd}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <Workspace
@@ -102,6 +105,13 @@ function App() {
         onOpenChange={setEditorOpen}
         connection={editingConnection}
         onSaved={handleSaved}
+      />
+
+      <ConnectionsSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        connections={connections}
+        onImported={refresh}
       />
     </main>
   );

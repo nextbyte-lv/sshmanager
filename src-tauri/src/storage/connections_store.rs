@@ -38,6 +38,20 @@ pub struct ConnectionProfile {
     pub last_used_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedConnection {
+    #[serde(flatten)]
+    pub profile: ConnectionProfile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConnectionsExportFile {
+    pub version: u32,
+    pub connections: Vec<ExportedConnection>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConnectionInput {
     pub name: String,

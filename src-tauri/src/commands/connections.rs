@@ -1,9 +1,11 @@
+use std::fs;
+
 use tauri::State;
 use uuid::Uuid;
 
 use crate::secrets::{self, SecretKind};
 use crate::state::AppState;
-use crate::storage::{ConnectionInput, ConnectionProfile};
+use crate::storage::{ConnectionInput, ConnectionProfile, ConnectionsExportFile, ExportedConnection};
 
 use super::secret_kind_for;
 
@@ -66,6 +68,66 @@ pub fn duplicate_connection(state: State<'_, AppState>, id: String) -> Result<Co
     }
 
     Ok(clone)
+}
+
+#[tauri::command]
+pub fn export_connections(
+    state: State<'_, AppState>,
+    path: String,
+    ids: Option<Vec<String>>,
+    include_secrets: bool,
+) -> Result<(), String> {
+    let all = state.connections.lock().unwrap().list();
+    let profiles: Vec<ConnectionProfile> = match ids {
+        Some(ids) => {
+            let wanted = ids.iter().map(|s| parse_id(s)).collect::<Result<Vec<_>, _>>()?;
+            all.into_iter().filter(|p| wanted.contains(&p.id)).collect()
+        }
+        None => all,
+    };
+
+    let connections = profiles
+        .into_iter()
+        .map(|profile| {
+            let secret = if include_secrets {
+                secrets::get_secret(&profile.id.to_string(), &profile.username, secret_kind_for(profile.auth_type))
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            ExportedConnection { profile, secret }
+        })
+        .collect();
+
+    let file = ConnectionsExportFile { version: 1, connections };
+    let json = serde_json::to_vec_pretty(&file).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_connections(state: State<'_, AppState>, path: String) -> Result<Vec<ConnectionProfile>, String> {
+    let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let file: ConnectionsExportFile = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+
+    let mut imported = Vec::with_capacity(file.connections.len());
+    for entry in file.connections {
+        let input = ConnectionInput {
+            name: entry.profile.name,
+            host: entry.profile.host,
+            port: entry.profile.port,
+            username: entry.profile.username,
+            auth_type: entry.profile.auth_type,
+            key_path: entry.profile.key_path,
+            tags: entry.profile.tags,
+        };
+        let saved = state.connections.lock().unwrap().save(None, input).map_err(|e| e.to_string())?;
+        if let Some(secret) = entry.secret {
+            let _ = secrets::set_secret(&saved.id.to_string(), &saved.username, secret_kind_for(saved.auth_type), &secret);
+        }
+        imported.push(saved);
+    }
+    Ok(imported)
 }
 
 #[tauri::command]
