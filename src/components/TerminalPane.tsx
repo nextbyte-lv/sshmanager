@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { Loader2 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
 import { closeSession, openSession, resizeSession, sendInput } from "@/lib/tauri";
@@ -19,8 +20,10 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
   onClosedRef.current = onClosed;
   const onSessionIdRef = useRef(onSessionId);
   onSessionIdRef.current = onSessionId;
+  const [connecting, setConnecting] = useState(true);
 
   useEffect(() => {
+    setConnecting(true);
     const container = containerRef.current;
     if (!container) return;
 
@@ -62,7 +65,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
         onClosedRef.current?.();
       } else if (event.type === "error") {
         term.write(`\r\n\x1b[31m${event.message}\x1b[0m\r\n`);
-        onClosedRef.current?.(event.message);
+        // Leave the pane open so the failure is readable; the user closes it manually.
       } else if (event.type === "reconnecting") {
         term.write(
           `\r\n\x1b[33m[connection lost, reconnecting (attempt ${event.attempt}/${event.max_attempts})...]\x1b[0m\r\n`,
@@ -72,6 +75,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
       }
     })
       .then((id) => {
+        setConnecting(false);
         if (disposed) {
           void closeSession(id);
           return;
@@ -80,8 +84,9 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
         onSessionIdRef.current?.(id);
       })
       .catch((err) => {
+        setConnecting(false);
         term.write(`\r\n\x1b[31mFailed to connect: ${String(err)}\x1b[0m\r\n`);
-        onClosedRef.current?.(String(err));
+        // Leave the pane open so the failure is readable; the user closes it manually.
       });
 
     return () => {
@@ -94,8 +99,16 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
   }, [profile.id]);
 
   return (
-    <div className="h-full w-full p-2">
+    <div className="relative h-full w-full p-2">
       <div ref={containerRef} className="h-full w-full" />
+      {connecting && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0f19] text-sm text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>
+            Connecting to {profile.host}:{profile.port}...
+          </span>
+        </div>
+      )}
     </div>
   );
 }
