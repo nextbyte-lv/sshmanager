@@ -63,6 +63,12 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
       } else if (event.type === "error") {
         term.write(`\r\n\x1b[31m${event.message}\x1b[0m\r\n`);
         onClosedRef.current?.(event.message);
+      } else if (event.type === "reconnecting") {
+        term.write(
+          `\r\n\x1b[33m[connection lost, reconnecting (attempt ${event.attempt}/${event.max_attempts})...]\x1b[0m\r\n`,
+        );
+      } else if (event.type === "reconnected") {
+        term.write("\r\n\x1b[32m[reconnected]\x1b[0m\r\n");
       }
     })
       .then((id) => {

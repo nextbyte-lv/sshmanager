@@ -27,4 +27,6 @@ export type SecretKind = "password" | "passphrase";
 export type TerminalEvent =
   | { type: "data"; data: string }
   | { type: "closed"; code: number | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "reconnecting"; attempt: number; max_attempts: number }
+  | { type: "reconnected" };

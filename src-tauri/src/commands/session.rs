@@ -16,6 +16,7 @@ fn parse_id(id: &str) -> Result<Uuid, String> {
 
 #[tauri::command]
 pub async fn open_session(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
     cols: u16,
@@ -30,11 +31,11 @@ pub async fn open_session(
 
     let secret = secrets::get_secret(&id, &profile.username, secret_kind_for(profile.auth_type))?;
 
-    let (cmd_tx, ssh) = ssh::pty::open(profile, secret, cols, rows, on_event)
+    let session_id = Uuid::new_v4().to_string();
+    let (cmd_tx, ssh) = ssh::pty::open(app, session_id.clone(), profile, secret, cols, rows, on_event)
         .await
         .map_err(|e| e.to_string())?;
 
-    let session_id = Uuid::new_v4().to_string();
     state.sessions.lock().unwrap().insert(session_id.clone(), SessionHandle { cmd_tx, ssh });
     state.connections.lock().unwrap().touch_last_used(&uuid);
 
