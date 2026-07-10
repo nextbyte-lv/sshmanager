@@ -102,7 +102,12 @@ export function ConnectionList({
                       <div className="flex items-center gap-1.5">
                         <span className="truncate text-sm font-medium">{connection.name}</span>
                         {!!activeCounts[connection.id] && (
-                          <Badge variant="success">{activeCounts[connection.id]}</Badge>
+                          <Badge
+                            variant="success"
+                            className="h-4 w-4 shrink-0 justify-center rounded-full p-0"
+                          >
+                            {activeCounts[connection.id]}
+                          </Badge>
                         )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
