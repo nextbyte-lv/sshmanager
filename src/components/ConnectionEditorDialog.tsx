@@ -30,6 +30,7 @@ interface FormState {
   keyPath: string;
   tags: string;
   secret: string;
+  color: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -41,7 +42,22 @@ const EMPTY_FORM: FormState = {
   keyPath: "",
   tags: "",
   secret: "",
+  color: "",
 };
+
+// Dark, low-saturation tints close to the terminal's default background
+// lightness so foreground text stays readable regardless of which is picked.
+const PRESET_COLORS = [
+  "#2a1216",
+  "#2a1c0d",
+  "#2a230a",
+  "#0f2416",
+  "#0a2422",
+  "#0d1c2a",
+  "#15132a",
+  "#20122a",
+  "#2a1220",
+];
 
 function profileToForm(profile: ConnectionProfile): FormState {
   return {
@@ -53,6 +69,7 @@ function profileToForm(profile: ConnectionProfile): FormState {
     keyPath: profile.key_path ?? "",
     tags: profile.tags.join(", "),
     secret: "",
+    color: profile.color ?? "",
   };
 }
 
@@ -112,6 +129,7 @@ export function ConnectionEditorDialog({
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
+      color: form.color || null,
     };
   }
 
@@ -255,6 +273,41 @@ export function ConnectionEditorDialog({
               onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
               placeholder="prod, web (comma separated)"
             />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Terminal color</Label>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                title="Default"
+                onClick={() => setForm((f) => ({ ...f, color: "" }))}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border ${
+                  form.color === "" ? "ring-2 ring-ring ring-offset-2 ring-offset-background" : ""
+                }`}
+              >
+                <span className="h-3 w-3 rounded-full bg-muted-foreground/40" />
+              </button>
+              {PRESET_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={color}
+                  onClick={() => setForm((f) => ({ ...f, color }))}
+                  style={{ backgroundColor: color }}
+                  className={`h-6 w-6 shrink-0 rounded-full border border-border ${
+                    form.color === color ? "ring-2 ring-ring ring-offset-2 ring-offset-background" : ""
+                  }`}
+                />
+              ))}
+              <input
+                type="color"
+                value={form.color || "#0b0f19"}
+                onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                title="Custom color"
+                className="h-6 w-6 shrink-0 cursor-pointer rounded-full border border-border p-0"
+              />
+            </div>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

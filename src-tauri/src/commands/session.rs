@@ -87,6 +87,7 @@ pub async fn test_connection(id: Option<String>, input: ConnectionInput, secret:
         key_path: input.key_path,
         tags: input.tags,
         last_used_at: None,
+        color: input.color,
     };
 
     let secret = match secret {

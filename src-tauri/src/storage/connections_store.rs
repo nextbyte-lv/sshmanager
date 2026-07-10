@@ -36,6 +36,8 @@ pub struct ConnectionProfile {
     pub tags: Vec<String>,
     #[serde(default)]
     pub last_used_at: Option<i64>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +65,8 @@ pub struct ConnectionInput {
     pub key_path: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 pub struct ConnectionsStore {
@@ -107,6 +111,7 @@ impl ConnectionsStore {
                 existing.auth_type = input.auth_type;
                 existing.key_path = input.key_path;
                 existing.tags = input.tags;
+                existing.color = input.color;
                 existing.clone()
             }
             None => {
@@ -120,6 +125,7 @@ impl ConnectionsStore {
                     key_path: input.key_path,
                     tags: input.tags,
                     last_used_at: None,
+                    color: input.color,
                 };
                 self.profiles.push(profile.clone());
                 profile

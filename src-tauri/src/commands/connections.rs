@@ -120,6 +120,7 @@ pub fn import_connections(state: State<'_, AppState>, path: String) -> Result<Ve
             auth_type: entry.profile.auth_type,
             key_path: entry.profile.key_path,
             tags: entry.profile.tags,
+            color: entry.profile.color,
         };
         let saved = state.connections.lock().unwrap().save(None, input).map_err(|e| e.to_string())?;
         if let Some(secret) = entry.secret {

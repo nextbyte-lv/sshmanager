@@ -10,6 +10,7 @@ export interface ConnectionProfile {
   key_path?: string | null;
   tags: string[];
   last_used_at?: number | null;
+  color?: string | null;
 }
 
 export interface ConnectionInput {
@@ -20,6 +21,7 @@ export interface ConnectionInput {
   auth_type: AuthType;
   key_path?: string | null;
   tags: string[];
+  color?: string | null;
 }
 
 export type SecretKind = "password" | "passphrase";

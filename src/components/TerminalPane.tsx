@@ -8,6 +8,8 @@ import { useEffect, useRef, useState } from "react";
 import { closeSession, openSession, resizeSession, sendInput } from "@/lib/tauri";
 import type { ConnectionProfile, TerminalEvent } from "@/types/connection";
 
+const DEFAULT_TERMINAL_BACKGROUND = "#0b0f19";
+
 interface TerminalPaneProps {
   profile: ConnectionProfile;
   onClosed?: (message?: string) => void;
@@ -31,7 +33,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
       cursorBlink: true,
       fontFamily: '"Cascadia Mono", Consolas, monospace',
       fontSize: 13,
-      theme: { background: "#0b0f19" },
+      theme: { background: profile.color || DEFAULT_TERMINAL_BACKGROUND },
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -108,7 +110,10 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {connecting && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0f19] text-sm text-muted-foreground">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+          style={{ backgroundColor: profile.color || DEFAULT_TERMINAL_BACKGROUND }}
+        >
           <Loader2 className="h-5 w-5 animate-spin" />
           <span>
             Connecting to {profile.host}:{profile.port}...
