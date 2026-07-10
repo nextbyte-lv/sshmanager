@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { Loader2 } from "lucide-react";
+import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { closeSession, openSession, resizeSession, sendInput } from "@/lib/tauri";
 import type { ConnectionProfile, TerminalEvent } from "@/types/connection";
@@ -44,6 +44,11 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
 
     const dataDisposable = term.onData((data) => {
       if (sessionId) void sendInput(sessionId, data);
+    });
+
+    const selectionDisposable = term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection) void navigator.clipboard.writeText(selection).catch(() => {});
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -92,6 +97,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
     return () => {
       disposed = true;
       resizeObserver.disconnect();
+      selectionDisposable.dispose();
       dataDisposable.dispose();
       if (sessionId) void closeSession(sessionId);
       term.dispose();
