@@ -1,6 +1,6 @@
 [package]
 name = "sshmanager"
-version = "0.1.0"
+version = "0.2.0"
 description = "Personal SSH/SFTP session manager"
 authors = ["you"]
 edition = "2021"

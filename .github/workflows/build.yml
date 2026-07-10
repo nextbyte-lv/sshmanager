@@ -39,7 +39,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          Copy-Item src-tauri/target/release/sshmanager.exe release-assets/SshManager-portable.exe
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          Copy-Item src-tauri/target/release/sshmanager.exe "release-assets/SshManager-$version-portable.exe"
           Copy-Item src-tauri/target/release/bundle/msi/*.msi release-assets/
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release-assets/
 
