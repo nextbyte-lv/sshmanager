@@ -105,7 +105,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
   }, [profile.id]);
 
   return (
-    <div className="relative h-full w-full p-2">
+    <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {connecting && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0f19] text-sm text-muted-foreground">

@@ -178,3 +178,7 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
+
+.xterm .xterm-scrollable-element {
+  padding: 0.5rem;
+}
