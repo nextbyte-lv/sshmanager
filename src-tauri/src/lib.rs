@@ -18,7 +18,19 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
             let connections_path = app_data_dir.join("connections.json");
             let store = storage::ConnectionsStore::load(connections_path);
-            app.manage(AppState::new(store));
+
+            let app_handle = app.handle().clone();
+            let file_watcher = notify_debouncer_mini::new_debouncer(
+                std::time::Duration::from_millis(400),
+                move |res: notify_debouncer_mini::DebounceEventResult| {
+                    if let Ok(events) = res {
+                        commands::sftp::handle_fs_events(app_handle.clone(), events);
+                    }
+                },
+            )
+            .expect("failed to create file watcher");
+
+            app.manage(AppState::new(store, file_watcher));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -42,6 +54,7 @@ pub fn run() {
             commands::sftp::sftp_mkdir,
             commands::sftp::sftp_delete,
             commands::sftp::sftp_rename,
+            commands::sftp::sftp_open_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

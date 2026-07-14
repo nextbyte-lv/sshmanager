@@ -5,7 +5,7 @@ import type {
   SecretKind,
   TerminalEvent,
 } from "@/types/connection";
-import type { SftpEntry, UploadEvent } from "@/types/sftp";
+import type { FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
 
 export function listConnections() {
   return invoke<ConnectionProfile[]>("list_connections");
@@ -99,4 +99,14 @@ export function sftpDelete(sessionId: string, path: string, isDir: boolean) {
 
 export function sftpRename(sessionId: string, from: string, to: string) {
   return invoke<void>("sftp_rename", { sessionId, from, to });
+}
+
+export function sftpOpenFile(
+  sessionId: string,
+  remotePath: string,
+  onEvent: (event: FileSyncEvent) => void,
+) {
+  const channel = new Channel<FileSyncEvent>();
+  channel.onmessage = onEvent;
+  return invoke<string>("sftp_open_file", { sessionId, remotePath, onEvent: channel });
 }

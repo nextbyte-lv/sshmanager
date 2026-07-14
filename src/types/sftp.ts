@@ -12,3 +12,8 @@ export type UploadEvent =
   | { type: "file_done"; path: string }
   | { type: "file_error"; path: string; message: string }
   | { type: "done"; uploaded: number; skipped: number; failed: number };
+
+export type FileSyncEvent =
+  | { type: "uploading" }
+  | { type: "uploaded" }
+  | { type: "error"; message: string };

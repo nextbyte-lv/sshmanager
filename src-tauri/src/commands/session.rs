@@ -68,6 +68,7 @@ pub fn close_session(state: State<'_, AppState>, session_id: String) -> Result<(
         let _ = session.cmd_tx.send(SessionCommand::Close);
     }
     state.sftp.lock().unwrap().remove(&session_id);
+    state.watched_files.lock().unwrap().retain(|_, watched| watched.session_id != session_id);
     Ok(())
 }
 

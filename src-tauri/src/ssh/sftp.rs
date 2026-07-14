@@ -30,6 +30,14 @@ pub enum UploadEvent {
     Done { uploaded: u32, skipped: u32, failed: u32 },
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FileSyncEvent {
+    Uploading,
+    Uploaded,
+    Error { message: String },
+}
+
 pub async fn open_sftp(ssh: &Arc<russh::client::Handle<Client>>) -> Result<SftpSession, SshError> {
     let channel = ssh.channel_open_session().await.map_err(SshError::Channel)?;
     channel.request_subsystem(true, "sftp").await.map_err(SshError::Channel)?;
@@ -74,7 +82,7 @@ fn local_mtime_secs(meta: &std::fs::Metadata) -> Option<u32> {
 // Uploads a single file, skipping the transfer if a remote file already exists with the
 // same size and mtime (rsync's default "quick check"). Returns true if the file was
 // actually transferred, false if it was skipped.
-async fn upload_file(
+pub(crate) async fn upload_file(
     sftp: &SftpSession,
     local_path: &Path,
     remote_path: &str,

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   ArrowUp,
+  ExternalLink,
   File,
   Folder,
   FolderPlus,
   FolderUp,
   HardDrive,
+  Loader2,
   Pencil,
   RefreshCw,
   Terminal,
@@ -22,10 +25,11 @@ import {
   sftpDownload,
   sftpListDir,
   sftpMkdir,
+  sftpOpenFile,
   sftpRename,
   sftpUpload,
 } from "@/lib/tauri";
-import type { SftpEntry, UploadEvent } from "@/types/sftp";
+import type { FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
 
 interface UploadProgress {
   currentPath: string;
@@ -75,6 +79,7 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [syncStatus, setSyncStatus] = useState<Record<string, FileSyncEvent["type"]>>({});
 
   useEffect(() => {
     sftpCanonicalize(sessionId, ".")
@@ -159,6 +164,20 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
     if (!savePath) return;
     try {
       await sftpDownload(sessionId, joinPath(path, entry.name), savePath);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleOpen(entry: SftpEntry) {
+    if (path === null) return;
+    const remotePath = joinPath(path, entry.name);
+    try {
+      const localPath = await sftpOpenFile(sessionId, remotePath, (event) => {
+        setSyncStatus((prev) => ({ ...prev, [remotePath]: event.type }));
+        if (event.type === "error") setError(event.message);
+      });
+      await openPath(localPath);
     } catch (err) {
       setError(String(err));
     }
@@ -306,15 +325,25 @@ export function SftpPanel({ sessionId }: SftpPanelProps) {
               <button
                 type="button"
                 className="min-w-0 flex-1 truncate text-left text-xs"
-                onDoubleClick={() => entry.is_dir && setPath(joinPath(path, entry.name))}
+                onDoubleClick={() =>
+                  entry.is_dir ? setPath(joinPath(path, entry.name)) : void handleOpen(entry)
+                }
                 title={`${entry.name}${entry.modified ? ` — ${formatModified(entry.modified)}` : ""}`}
               >
                 {entry.name}
               </button>
+              {!entry.is_dir && syncStatus[joinPath(path, entry.name)] === "uploading" && (
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              )}
               <span className="shrink-0 text-xs text-muted-foreground">
                 {entry.is_dir ? "" : formatSize(entry.size)}
               </span>
               <div className="flex shrink-0 opacity-0 group-hover:opacity-100">
+                {!entry.is_dir && (
+                  <Button size="icon-xs" variant="ghost" title="Open" onClick={() => handleOpen(entry)}>
+                    <ExternalLink />
+                  </Button>
+                )}
                 {!entry.is_dir && (
                   <Button size="icon-xs" variant="ghost" title="Download" onClick={() => handleDownload(entry)}>
                     <ArrowUp className="rotate-180" />
