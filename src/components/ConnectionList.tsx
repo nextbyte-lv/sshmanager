@@ -11,6 +11,7 @@ interface ConnectionListProps {
   connections: ConnectionProfile[];
   activeId: string | null;
   activeCounts: Record<string, number>;
+  width: number;
   onConnect: (profile: ConnectionProfile) => void;
   onEdit: (profile: ConnectionProfile) => void;
   onDuplicate: (profile: ConnectionProfile) => void;
@@ -23,6 +24,7 @@ export function ConnectionList({
   connections,
   activeId,
   activeCounts,
+  width,
   onConnect,
   onEdit,
   onDuplicate,
@@ -57,7 +59,7 @@ export function ConnectionList({
   }, [connections, query]);
 
   return (
-    <div className="flex h-full w-72 flex-col border-r border-border bg-card">
+    <div className="flex h-full shrink-0 flex-col border-r border-border bg-card" style={{ width }}>
       <div className="flex items-center gap-2 border-b border-border p-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />

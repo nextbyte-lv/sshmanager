@@ -23,6 +23,13 @@ pub enum AuthType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FavoritePath {
+    pub id: Uuid,
+    pub label: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub id: Uuid,
     pub name: String,
@@ -38,6 +45,8 @@ pub struct ConnectionProfile {
     pub last_used_at: Option<i64>,
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default)]
+    pub favorite_paths: Vec<FavoritePath>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +135,7 @@ impl ConnectionsStore {
                     tags: input.tags,
                     last_used_at: None,
                     color: input.color,
+                    favorite_paths: Vec::new(),
                 };
                 self.profiles.push(profile.clone());
                 profile
@@ -163,5 +173,29 @@ impl ConnectionsStore {
             profile.last_used_at = Some(now_ms);
             let _ = self.persist();
         }
+    }
+
+    pub fn add_favorite_path(&mut self, id: &Uuid, label: String, path: String) -> Result<ConnectionProfile, StorageError> {
+        let profile = self.profiles.iter_mut().find(|p| &p.id == id).ok_or(StorageError::NotFound)?;
+        profile.favorite_paths.push(FavoritePath { id: Uuid::new_v4(), label, path });
+        let updated = profile.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn remove_favorite_path(&mut self, id: &Uuid, favorite_id: &Uuid) -> Result<ConnectionProfile, StorageError> {
+        let profile = self.profiles.iter_mut().find(|p| &p.id == id).ok_or(StorageError::NotFound)?;
+        profile.favorite_paths.retain(|f| &f.id != favorite_id);
+        let updated = profile.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn set_favorite_paths(&mut self, id: &Uuid, favorite_paths: Vec<FavoritePath>) -> Result<ConnectionProfile, StorageError> {
+        let profile = self.profiles.iter_mut().find(|p| &p.id == id).ok_or(StorageError::NotFound)?;
+        profile.favorite_paths = favorite_paths;
+        let updated = profile.clone();
+        self.persist()?;
+        Ok(updated)
     }
 }

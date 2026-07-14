@@ -14,6 +14,7 @@ interface WorkspaceProps {
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onUpdateTab: (tabId: string, updater: (tab: Tab) => Tab | null) => void;
+  onConnectionsChanged: () => void;
 }
 
 export function Workspace({
@@ -23,6 +24,7 @@ export function Workspace({
   onActivateTab,
   onCloseTab,
   onUpdateTab,
+  onConnectionsChanged,
 }: WorkspaceProps) {
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
@@ -66,6 +68,7 @@ export function Workspace({
               tab={tab}
               connections={connections}
               onUpdate={(updater) => onUpdateTab(tab.id, updater)}
+              onConnectionsChanged={onConnectionsChanged}
             />
           </div>
         ))}
@@ -78,9 +81,10 @@ interface TabMosaicProps {
   tab: Tab;
   connections: ConnectionProfile[];
   onUpdate: (updater: (tab: Tab) => Tab | null) => void;
+  onConnectionsChanged: () => void;
 }
 
-function TabMosaic({ tab, connections, onUpdate }: TabMosaicProps) {
+function TabMosaic({ tab, connections, onUpdate, onConnectionsChanged }: TabMosaicProps) {
   function handleLayoutChange(layout: MosaicNode<string> | null) {
     if (!layout) return;
     onUpdate((current) => ({ ...current, layout }));
@@ -119,6 +123,7 @@ function TabMosaic({ tab, connections, onUpdate }: TabMosaicProps) {
             connections={connections}
             onSplit={(direction, conn) => handleSplit(path, direction, conn)}
             onClose={() => handleClosePane(path)}
+            onConnectionsChanged={onConnectionsChanged}
           />
         );
       }}

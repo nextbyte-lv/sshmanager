@@ -71,6 +71,28 @@ pub fn duplicate_connection(state: State<'_, AppState>, id: String) -> Result<Co
 }
 
 #[tauri::command]
+pub fn add_favorite_path(
+    state: State<'_, AppState>,
+    id: String,
+    label: String,
+    path: String,
+) -> Result<ConnectionProfile, String> {
+    let uuid = parse_id(&id)?;
+    state.connections.lock().unwrap().add_favorite_path(&uuid, label, path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_favorite_path(
+    state: State<'_, AppState>,
+    id: String,
+    favorite_id: String,
+) -> Result<ConnectionProfile, String> {
+    let uuid = parse_id(&id)?;
+    let favorite_uuid = parse_id(&favorite_id)?;
+    state.connections.lock().unwrap().remove_favorite_path(&uuid, &favorite_uuid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn export_connections(
     state: State<'_, AppState>,
     path: String,
@@ -122,7 +144,15 @@ pub fn import_connections(state: State<'_, AppState>, path: String) -> Result<Ve
             tags: entry.profile.tags,
             color: entry.profile.color,
         };
-        let saved = state.connections.lock().unwrap().save(None, input).map_err(|e| e.to_string())?;
+        let mut saved = state.connections.lock().unwrap().save(None, input).map_err(|e| e.to_string())?;
+        if !entry.profile.favorite_paths.is_empty() {
+            saved = state
+                .connections
+                .lock()
+                .unwrap()
+                .set_favorite_paths(&saved.id, entry.profile.favorite_paths)
+                .map_err(|e| e.to_string())?;
+        }
         if let Some(secret) = entry.secret {
             let _ = secrets::set_secret(&saved.id.to_string(), &saved.username, secret_kind_for(saved.auth_type), &secret);
         }

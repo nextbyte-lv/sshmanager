@@ -42,6 +42,8 @@ pub fn run() {
             commands::connections::has_credential,
             commands::connections::export_connections,
             commands::connections::import_connections,
+            commands::connections::add_favorite_path,
+            commands::connections::remove_favorite_path,
             commands::session::open_session,
             commands::session::send_input,
             commands::session::resize_session,

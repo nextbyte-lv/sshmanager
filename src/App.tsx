@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { PanelLeftOpen } from "lucide-react";
 
 import { ConnectionEditorDialog } from "@/components/ConnectionEditorDialog";
 import { ConnectionList } from "@/components/ConnectionList";
 import { ConnectionsSettingsDialog } from "@/components/ConnectionsSettingsDialog";
 import { Workspace } from "@/components/Workspace";
+import { Button } from "@/components/ui/button";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { deleteConnection, duplicateConnection, listConnections } from "@/lib/tauri";
 import { createTab } from "@/lib/workspace";
 import type { ConnectionProfile } from "@/types/connection";
@@ -16,6 +19,13 @@ function App() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ConnectionProfile | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const sidebar = useResizablePanel({
+    defaultWidth: 288,
+    minWidth: 200,
+    maxWidth: 600,
+    collapseThreshold: 120,
+    direction: "grow-right",
+  });
 
   async function refresh() {
     setConnections(await listConnections());
@@ -90,17 +100,37 @@ function App() {
 
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <ConnectionList
-        connections={connections}
-        activeId={null}
-        activeCounts={activeConnectionCounts}
-        onConnect={openNewTab}
-        onEdit={handleEdit}
-        onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
-        onAdd={handleAdd}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      {sidebar.open ? (
+        <>
+          <ConnectionList
+            connections={connections}
+            activeId={null}
+            activeCounts={activeConnectionCounts}
+            width={sidebar.width}
+            onConnect={openNewTab}
+            onEdit={handleEdit}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+            onAdd={handleAdd}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent"
+            onMouseDown={sidebar.handleMouseDown}
+          />
+        </>
+      ) : (
+        <div className="flex w-6 shrink-0 flex-col items-center border-r border-border bg-card pt-2">
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            title="Show connections"
+            onClick={() => sidebar.setOpen(true)}
+          >
+            <PanelLeftOpen />
+          </Button>
+        </div>
+      )}
 
       <Workspace
         tabs={tabs}
@@ -109,6 +139,7 @@ function App() {
         onActivateTab={setActiveTabId}
         onCloseTab={closeTab}
         onUpdateTab={updateTab}
+        onConnectionsChanged={refresh}
       />
 
       <ConnectionEditorDialog

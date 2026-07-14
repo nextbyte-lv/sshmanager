@@ -1,5 +1,11 @@
 export type AuthType = "password" | "key";
 
+export interface FavoritePath {
+  id: string;
+  label: string;
+  path: string;
+}
+
 export interface ConnectionProfile {
   id: string;
   name: string;
@@ -11,6 +17,7 @@ export interface ConnectionProfile {
   tags: string[];
   last_used_at?: number | null;
   color?: string | null;
+  favorite_paths: FavoritePath[];
 }
 
 export interface ConnectionInput {

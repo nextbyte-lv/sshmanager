@@ -31,6 +31,14 @@ export function hasCredential(id: string, username: string, kind: SecretKind) {
   return invoke<boolean>("has_credential", { id, username, kind });
 }
 
+export function addFavoritePath(id: string, label: string, path: string) {
+  return invoke<ConnectionProfile>("add_favorite_path", { id, label, path });
+}
+
+export function removeFavoritePath(id: string, favoriteId: string) {
+  return invoke<ConnectionProfile>("remove_favorite_path", { id, favoriteId });
+}
+
 export function exportConnections(path: string, ids: string[] | null, includeSecrets: boolean) {
   return invoke<void>("export_connections", { path, ids, includeSecrets });
 }
