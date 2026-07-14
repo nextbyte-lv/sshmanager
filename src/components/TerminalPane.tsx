@@ -2,9 +2,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { closeSession, openSession, resizeSession, sendInput } from "@/lib/tauri";
 import type { ConnectionProfile, TerminalEvent } from "@/types/connection";
 
@@ -22,10 +23,11 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
   onClosedRef.current = onClosed;
   const onSessionIdRef = useRef(onSessionId);
   onSessionIdRef.current = onSessionId;
-  const [connecting, setConnecting] = useState(true);
+  const [status, setStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  const reconnectRef = useRef(() => {});
 
   useEffect(() => {
-    setConnecting(true);
+    setStatus("connecting");
     const container = containerRef.current;
     if (!container) return;
 
@@ -64,37 +66,47 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
     });
     resizeObserver.observe(container);
 
-    openSession(profile.id, term.cols, term.rows, (event: TerminalEvent) => {
-      if (event.type === "data") {
-        term.write(event.data);
-      } else if (event.type === "closed") {
-        term.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");
-        onClosedRef.current?.();
-      } else if (event.type === "error") {
-        term.write(`\r\n\x1b[31m${event.message}\x1b[0m\r\n`);
-        // Leave the pane open so the failure is readable; the user closes it manually.
-      } else if (event.type === "reconnecting") {
-        term.write(
-          `\r\n\x1b[33m[connection lost, reconnecting (attempt ${event.attempt}/${event.max_attempts})...]\x1b[0m\r\n`,
-        );
-      } else if (event.type === "reconnected") {
-        term.write("\r\n\x1b[32m[reconnected]\x1b[0m\r\n");
-      }
-    })
-      .then((id) => {
-        setConnecting(false);
-        if (disposed) {
-          void closeSession(id);
-          return;
+    const connect = () => {
+      setStatus("connecting");
+      openSession(profile.id, term.cols, term.rows, (event: TerminalEvent) => {
+        if (event.type === "data") {
+          term.write(event.data);
+        } else if (event.type === "closed") {
+          term.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");
+          sessionId = null;
+          onClosedRef.current?.();
+        } else if (event.type === "error") {
+          term.write(`\r\n\x1b[31m${event.message}\x1b[0m\r\n`);
+          sessionId = null;
+          if (!disposed) setStatus("error");
+        } else if (event.type === "reconnecting") {
+          term.write(
+            `\r\n\x1b[33m[connection lost, reconnecting (attempt ${event.attempt}/${event.max_attempts})...]\x1b[0m\r\n`,
+          );
+        } else if (event.type === "reconnected") {
+          term.write("\r\n\x1b[32m[reconnected]\x1b[0m\r\n");
         }
-        sessionId = id;
-        onSessionIdRef.current?.(id);
       })
-      .catch((err) => {
-        setConnecting(false);
-        term.write(`\r\n\x1b[31mFailed to connect: ${String(err)}\x1b[0m\r\n`);
-        // Leave the pane open so the failure is readable; the user closes it manually.
-      });
+        .then((id) => {
+          if (disposed) {
+            void closeSession(id);
+            return;
+          }
+          sessionId = id;
+          setStatus("connected");
+          onSessionIdRef.current?.(id);
+        })
+        .catch((err) => {
+          term.write(`\r\n\x1b[31mFailed to connect: ${String(err)}\x1b[0m\r\n`);
+          if (!disposed) setStatus("error");
+        });
+    };
+
+    reconnectRef.current = () => {
+      if (!sessionId) connect();
+    };
+
+    connect();
 
     return () => {
       disposed = true;
@@ -109,7 +121,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
-      {connecting && (
+      {status === "connecting" && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
           style={{ backgroundColor: profile.color || DEFAULT_TERMINAL_BACKGROUND }}
@@ -118,6 +130,15 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
           <span>
             Connecting to {profile.host}:{profile.port}...
           </span>
+        </div>
+      )}
+      {status === "error" && (
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-black/60 p-2 backdrop-blur-sm">
+          <span className="text-sm text-muted-foreground">Connection lost</span>
+          <Button size="sm" variant="outline" onClick={() => reconnectRef.current()}>
+            <RefreshCw data-icon="inline-start" />
+            Reconnect
+          </Button>
         </div>
       )}
     </div>
