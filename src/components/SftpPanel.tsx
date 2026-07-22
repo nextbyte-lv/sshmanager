@@ -19,7 +19,7 @@ import {
     Trash2,
     Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +52,8 @@ interface UploadProgress {
     uploaded: number;
     skipped: number;
     failed: number;
+    speedBps: number | null;
+    etaSeconds: number | null;
 }
 
 interface SftpPanelProps {
@@ -91,6 +93,28 @@ function formatModified(modified: number | null): string {
     return new Date(modified * 1000).toLocaleString();
 }
 
+function formatSpeed(bps: number | null): string {
+    if (bps === null || bps <= 0) return "";
+    if (bps < 1024) return `${bps.toFixed(0)} B/s`;
+    if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+    if (bps < 1024 * 1024 * 1024)
+        return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
+    return `${(bps / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
+}
+
+function formatEta(seconds: number | null): string {
+    if (seconds === null || !Number.isFinite(seconds) || seconds < 0)
+        return "";
+    const total = Math.round(seconds);
+    if (total < 60) return `${total}s left`;
+    const minutes = Math.floor(total / 60);
+    const secs = total % 60;
+    if (minutes < 60) return `${minutes}m ${secs}s left`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m left`;
+}
+
 export function SftpPanel({
     sessionId,
     width,
@@ -107,6 +131,9 @@ export function SftpPanel({
     const [syncStatus, setSyncStatus] = useState<
         Record<string, FileSyncEvent["type"]>
     >({});
+    const uploadSampleRef = useRef<{ time: number; bytes: number } | null>(
+        null,
+    );
 
     useEffect(() => {
         sftpCanonicalize(sessionId, ".")
@@ -137,23 +164,54 @@ export function SftpPanel({
         if (event.type === "file_error") {
             setError(event.message);
         }
+        const now = Date.now();
         setUploadProgress((prev) => {
             if (!prev) return prev;
             switch (event.type) {
                 case "started":
+                    uploadSampleRef.current = { time: now, bytes: 0 };
                     return {
                         ...prev,
                         currentPath: event.path,
                         bytesDone: 0,
                         totalBytes: event.total_bytes,
+                        speedBps: null,
+                        etaSeconds: null,
                     };
-                case "progress":
+                case "progress": {
+                    const sample = uploadSampleRef.current;
+                    let speedBps = prev.speedBps;
+                    if (sample) {
+                        const dtSeconds = (now - sample.time) / 1000;
+                        const dBytes = event.bytes_done - sample.bytes;
+                        // Throttle sampling so speed isn't recalculated from
+                        // near-zero time deltas between rapid chunk events.
+                        if (dtSeconds > 0.15 && dBytes >= 0) {
+                            const instantSpeed = dBytes / dtSeconds;
+                            speedBps =
+                                speedBps === null
+                                    ? instantSpeed
+                                    : speedBps * 0.7 + instantSpeed * 0.3;
+                            uploadSampleRef.current = {
+                                time: now,
+                                bytes: event.bytes_done,
+                            };
+                        }
+                    }
+                    const remaining = event.total_bytes - event.bytes_done;
+                    const etaSeconds =
+                        speedBps && speedBps > 0
+                            ? remaining / speedBps
+                            : null;
                     return {
                         ...prev,
                         currentPath: event.path,
                         bytesDone: event.bytes_done,
                         totalBytes: event.total_bytes,
+                        speedBps,
+                        etaSeconds,
                     };
+                }
                 case "skipped":
                     return { ...prev, skipped: prev.skipped + 1 };
                 case "file_done":
@@ -168,6 +226,7 @@ export function SftpPanel({
 
     async function uploadPaths(localPaths: string[]) {
         if (path === null || localPaths.length === 0) return;
+        uploadSampleRef.current = null;
         setUploadProgress({
             currentPath: "",
             bytesDone: 0,
@@ -175,6 +234,8 @@ export function SftpPanel({
             uploaded: 0,
             skipped: 0,
             failed: 0,
+            speedBps: null,
+            etaSeconds: null,
         });
         for (const localPath of localPaths) {
             const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
@@ -485,6 +546,13 @@ export function SftpPanel({
                             }}
                         />
                     </div>
+                    {(uploadProgress.speedBps !== null ||
+                        uploadProgress.etaSeconds !== null) && (
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                            <span>{formatSpeed(uploadProgress.speedBps)}</span>
+                            <span>{formatEta(uploadProgress.etaSeconds)}</span>
+                        </div>
+                    )}
                 </div>
             )}
 
