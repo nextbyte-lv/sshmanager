@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MosaicWindow, type MosaicBranch, type MosaicDirection } from "react-mosaic-component";
+import { MosaicWindow, type MosaicPath, type MosaicDirection } from "react-mosaic-component";
 import { ChevronsRight } from "lucide-react";
 
 import { PaneToolbar } from "@/components/PaneToolbar";
@@ -10,7 +10,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import type { ConnectionProfile } from "@/types/connection";
 
 interface PaneLeafProps {
-  path: MosaicBranch[];
+  path: MosaicPath;
   connection: ConnectionProfile;
   connections: ConnectionProfile[];
   onSplit: (direction: MosaicDirection, connection: ConnectionProfile) => void;

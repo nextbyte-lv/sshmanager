@@ -1,4 +1,4 @@
-import { Mosaic, type MosaicBranch, type MosaicDirection, type MosaicNode } from "react-mosaic-component";
+import { Mosaic, type MosaicPath, type MosaicDirection, type MosaicNode } from "react-mosaic-component";
 import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -90,11 +90,11 @@ function TabMosaic({ tab, connections, onUpdate, onConnectionsChanged }: TabMosa
     onUpdate((current) => ({ ...current, layout }));
   }
 
-  function handleSplit(path: MosaicBranch[], direction: MosaicDirection, connection: ConnectionProfile) {
+  function handleSplit(path: MosaicPath, direction: MosaicDirection, connection: ConnectionProfile) {
     onUpdate((current) => splitPane(current, path, direction, connection));
   }
 
-  function handleClosePane(path: MosaicBranch[]) {
+  function handleClosePane(path: MosaicPath) {
     onUpdate((current) => removePane(current, path));
   }
 

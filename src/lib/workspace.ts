@@ -1,7 +1,7 @@
 import {
   createRemoveUpdate,
   updateTree,
-  type MosaicBranch,
+  type MosaicPath,
   type MosaicDirection,
 } from "react-mosaic-component";
 
@@ -20,7 +20,7 @@ export function createTab(connection: ConnectionProfile): Tab {
 
 export function splitPane(
   tab: Tab,
-  path: MosaicBranch[],
+  path: MosaicPath,
   direction: MosaicDirection,
   connection: ConnectionProfile,
 ): Tab {
@@ -35,9 +35,9 @@ export function splitPane(
       path,
       spec: {
         $set: {
+          type: "split",
           direction,
-          first: existingLeaf,
-          second: newPaneId,
+          children: [existingLeaf, newPaneId],
         },
       },
     },
@@ -53,7 +53,7 @@ export function splitPane(
   };
 }
 
-export function removePane(tab: Tab, path: MosaicBranch[]): Tab | null {
+export function removePane(tab: Tab, path: MosaicPath): Tab | null {
   const removedId = getNodeAtPath(tab.layout, path);
   if (removedId === null || typeof removedId !== "string") {
     return tab;
@@ -71,11 +71,11 @@ export function removePane(tab: Tab, path: MosaicBranch[]): Tab | null {
   return { ...tab, layout: newLayout, panes };
 }
 
-function getNodeAtPath(node: Tab["layout"], path: MosaicBranch[]): Tab["layout"] | null {
+function getNodeAtPath(node: Tab["layout"], path: MosaicPath): Tab["layout"] | null {
   let current: Tab["layout"] | null = node;
   for (const branch of path) {
-    if (current === null || typeof current === "string") return null;
-    current = current[branch];
+    if (current === null || typeof current === "string" || current.type !== "split") return null;
+    current = current.children[branch] ?? null;
   }
   return current;
 }
