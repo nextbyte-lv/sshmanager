@@ -36,7 +36,11 @@ pub async fn open_session(
         .await
         .map_err(|e| e.to_string())?;
 
-    state.sessions.lock().unwrap().insert(session_id.clone(), SessionHandle { cmd_tx, ssh });
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), SessionHandle { cmd_tx, ssh, connection_id: id.clone() });
     state.connections.lock().unwrap().touch_last_used(&uuid);
 
     Ok(session_id)

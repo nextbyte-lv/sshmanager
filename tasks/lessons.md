@@ -90,3 +90,57 @@ build ongoing navigation state machine off them — resolve to a real absolute
 path once (here: `sftp.canonicalize(".")`) and do all subsequent join/parent
 logic in absolute-path terms, which have a natural, real ceiling (`/`) instead
 of an artificial one you have to invent and get wrong.
+
+## A file watcher hears its own program's writes — a downloader that also uploads echoes
+The SFTP "open remote file in local editor" flow downloads to a local cache
+dir, watches that dir with `notify`, and re-uploads on change. It worked on the
+first open of a file and then started failing with
+`sftp error: Permission denied: Permission denied` on later opens. Nothing about
+permissions had changed on the server, and the frontend was innocent.
+Root cause: `watched_dirs` arms the directory watch only once, *after* the first
+download. So on the first open the download's own write happens before the
+watch exists and goes unseen — but on every later open of a file in that same
+directory the watch is already live, the download's write is reported as a
+change, and the "user edited it" path fires and uploads the file straight back.
+For a remote file the SSH user can't write (a root-owned `.sh`), merely *opening*
+it then produced a write error; for writable files it was a silent pointless
+round-trip that bumped the remote mtime.
+**Rule:** whenever the same component both writes a file and watches it, the
+watcher will hear the component's own writes — event-arrival order relative to
+watch registration is not a defence, it just makes the bug intermittent. Gate on
+observed content state, not on event occurrence: record a stamp (mtime + size)
+of what was last synced and ignore any event whose stamp still matches
+(`WatchedFile.synced` in `state.rs`). Attribute-only touches from editors get
+filtered by the same check for free.
+**Also:** `russh_sftp` renders a status packet as `"<code>: <message>"` and
+servers usually put the code's own text in the message, so raw errors read
+`Permission denied: Permission denied` and name neither the file nor the
+operation. Wrap remote failures with the path and the verb
+(`SshError::RemoteRead`/`RemoteWrite`) — an error the user can act on has to say
+*which* file and *what* was attempted.
+
+## SFTP has no sudo — privileged writes need a second, non-SFTP channel
+Editing `/usr/local/bin/scheduled-shutdown.sh` through the SFTP panel failed with
+`Permission denied` on save and there is no client-side fix for it: the SFTP
+subsystem is a process running as the *login user*, and the protocol has no
+concept of privilege escalation anywhere in it — no flag on `SSH_FXP_OPEN`, no
+per-request identity. `sftp.create()` is just `open(O_WRONLY|O_TRUNC)` under a
+non-root uid, so the kernel refuses it and that is the end of the story on that
+channel.
+**Rule:** when SFTP can't express an operation, open a *separate* exec channel on
+the same `Arc<Handle>` (`ssh/exec.rs`) rather than looking for a stronger SFTP
+call. The write becomes: stage the bytes at a path the login user *can* write
+(`/tmp/.sshmanager-<uuid>`), then `sudo cp` it onto the target.
+Details that matter:
+- Use `cp`, not `mv`. `cp` onto an existing path writes through to the target's
+  inode and leaves owner and mode alone; `mv` replaces the file with one owned by
+  root at the temp file's mode, silently re-owning whatever you edited.
+- Never put a password on the command line — it is visible to every user on the
+  box via `ps`. Send it on the channel's stdin (`sudo -S -p ''`), and with no
+  password to offer use `sudo -n` so it fails fast instead of blocking forever on
+  a prompt nothing will ever answer.
+- Remote paths come from the server's own listing and can contain quotes, `$`,
+  and spaces. Anything interpolated into an exec command needs POSIX
+  single-quoting (`shell_quote`, covered by the one unit test in the repo).
+- A key-based connection has only a key *passphrase* stored, which is not the
+  login password: never hand it to sudo.

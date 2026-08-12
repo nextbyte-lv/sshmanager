@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -128,9 +129,10 @@ export function SftpPanel({
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
         null,
     );
-    const [syncStatus, setSyncStatus] = useState<
-        Record<string, FileSyncEvent["type"]>
-    >({});
+    const [syncStatus, setSyncStatus] = useState<Record<string, FileSyncEvent>>(
+        {},
+    );
+    const [pendingDelete, setPendingDelete] = useState<SftpEntry | null>(null);
     const uploadSampleRef = useRef<{ time: number; bytes: number } | null>(
         null,
     );
@@ -304,7 +306,7 @@ export function SftpPanel({
                 (event) => {
                     setSyncStatus((prev) => ({
                         ...prev,
-                        [remotePath]: event.type,
+                        [remotePath]: event,
                     }));
                     if (event.type === "error") setError(event.message);
                 },
@@ -345,7 +347,6 @@ export function SftpPanel({
 
     async function handleDelete(entry: SftpEntry) {
         if (path === null) return;
-        if (!window.confirm(`Delete "${entry.name}"?`)) return;
         try {
             await sftpDelete(
                 sessionId,
@@ -598,10 +599,27 @@ export function SftpPanel({
                                 {entry.name}
                             </button>
                             {!entry.is_dir &&
-                                syncStatus[joinPath(path, entry.name)] ===
-                                    "uploading" && (
-                                    <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                                )}
+                                (() => {
+                                    const sync =
+                                        syncStatus[joinPath(path, entry.name)];
+                                    if (sync?.type === "uploading")
+                                        return (
+                                            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                                        );
+                                    if (
+                                        sync?.type === "uploaded" &&
+                                        sync.elevated
+                                    )
+                                        return (
+                                            <span
+                                                className="shrink-0 text-[10px] uppercase text-muted-foreground"
+                                                title="Saved with sudo — this file is not writable by your login user"
+                                            >
+                                                sudo
+                                            </span>
+                                        );
+                                    return null;
+                                })()}
                             <span className="shrink-0 text-xs text-muted-foreground">
                                 {entry.is_dir ? "" : formatSize(entry.size)}
                             </span>
@@ -638,7 +656,7 @@ export function SftpPanel({
                                     size="icon-xs"
                                     variant="ghost"
                                     title="Delete"
-                                    onClick={() => handleDelete(entry)}
+                                    onClick={() => setPendingDelete(entry)}
                                 >
                                     <Trash2 />
                                 </Button>
@@ -646,6 +664,34 @@ export function SftpPanel({
                         </div>
                     ))}
             </div>
+
+            <ConfirmDialog
+                open={pendingDelete !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPendingDelete(null);
+                }}
+                title={`Delete this ${pendingDelete?.is_dir ? "folder" : "file"}?`}
+                description={
+                    pendingDelete && (
+                        <>
+                            <span className="block font-mono break-all text-foreground">
+                                {joinPath(path ?? "", pendingDelete.name)}
+                            </span>
+                            <span className="mt-2 block">
+                                {pendingDelete.is_dir
+                                    ? "Everything inside it is deleted too. This cannot be undone."
+                                    : "This cannot be undone."}
+                            </span>
+                        </>
+                    )
+                }
+                confirmLabel="Delete"
+                pendingLabel="Deleting…"
+                destructive
+                onConfirm={async () => {
+                    if (pendingDelete) await handleDelete(pendingDelete);
+                }}
+            />
         </div>
     );
 }

@@ -15,5 +15,5 @@ export type UploadEvent =
 
 export type FileSyncEvent =
   | { type: "uploading" }
-  | { type: "uploaded" }
+  | { type: "uploaded"; elevated: boolean }
   | { type: "error"; message: string };

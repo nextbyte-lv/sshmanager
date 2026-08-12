@@ -34,7 +34,7 @@ pub enum UploadEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FileSyncEvent {
     Uploading,
-    Uploaded,
+    Uploaded { elevated: bool },
     Error { message: String },
 }
 
@@ -66,7 +66,10 @@ pub async fn list_dir(sftp: &SftpSession, path: &str) -> Result<Vec<SftpEntry>, 
 }
 
 pub async fn download(sftp: &SftpSession, remote_path: &str, local_path: &str) -> Result<(), SshError> {
-    let data = sftp.read(remote_path).await.map_err(SshError::Sftp)?;
+    let data = sftp
+        .read(remote_path)
+        .await
+        .map_err(|source| SshError::RemoteRead { path: remote_path.to_string(), source })?;
     tokio::fs::write(local_path, data).await?;
     Ok(())
 }
@@ -77,6 +80,37 @@ fn join_remote(dir: &str, name: &str) -> String {
 
 fn local_mtime_secs(meta: &std::fs::Metadata) -> Option<u32> {
     meta.modified().ok()?.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs() as u32)
+}
+
+// Streams a local file's contents onto a remote path, replacing whatever is there.
+// Split out from `upload_file` so callers that have already decided to transfer —
+// e.g. staging content for a privileged write — can skip the freshness check.
+pub(crate) async fn copy_to_remote(
+    sftp: &SftpSession,
+    local_path: &Path,
+    remote_path: &str,
+    total_bytes: u64,
+    on_event: &impl Fn(UploadEvent),
+) -> Result<(), SshError> {
+    let mut local_file = tokio::fs::File::open(local_path).await?;
+    let mut remote_file = sftp
+        .create(remote_path)
+        .await
+        .map_err(|source| SshError::RemoteWrite { path: remote_path.to_string(), source })?;
+
+    let mut buf = vec![0u8; UPLOAD_CHUNK_SIZE];
+    let mut done = 0u64;
+    loop {
+        let n = local_file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        remote_file.write_all(&buf[..n]).await.map_err(SshError::Transfer)?;
+        done += n as u64;
+        on_event(UploadEvent::Progress { path: remote_path.to_string(), bytes_done: done, total_bytes });
+    }
+    remote_file.shutdown().await.map_err(SshError::Transfer)?;
+    Ok(())
 }
 
 // Uploads a single file, skipping the transfer if a remote file already exists with the
@@ -102,22 +136,7 @@ pub(crate) async fn upload_file(
     }
 
     on_event(UploadEvent::Started { path: remote_path.to_string(), total_bytes: local_size });
-
-    let mut local_file = tokio::fs::File::open(local_path).await?;
-    let mut remote_file = sftp.create(remote_path).await.map_err(SshError::Sftp)?;
-
-    let mut buf = vec![0u8; UPLOAD_CHUNK_SIZE];
-    let mut done = 0u64;
-    loop {
-        let n = local_file.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        remote_file.write_all(&buf[..n]).await.map_err(SshError::Transfer)?;
-        done += n as u64;
-        on_event(UploadEvent::Progress { path: remote_path.to_string(), bytes_done: done, total_bytes: local_size });
-    }
-    remote_file.shutdown().await.map_err(SshError::Transfer)?;
+    copy_to_remote(sftp, local_path, remote_path, local_size, on_event).await?;
 
     if let Some(local_mtime) = local_mtime {
         let mut attrs = Metadata::empty();
@@ -201,11 +220,53 @@ pub async fn make_dir(sftp: &SftpSession, path: &str) -> Result<(), SshError> {
 }
 
 pub async fn remove(sftp: &SftpSession, path: &str, is_dir: bool) -> Result<(), SshError> {
-    if is_dir {
-        sftp.remove_dir(path).await.map_err(SshError::Sftp)
-    } else {
-        sftp.remove_file(path).await.map_err(SshError::Sftp)
+    if !is_dir {
+        return remove_file(sftp, path).await;
     }
+    remove_dir_all(sftp, path).await
+}
+
+async fn remove_file(sftp: &SftpSession, path: &str) -> Result<(), SshError> {
+    sftp.remove_file(path)
+        .await
+        .map_err(|source| SshError::RemoteDelete { path: path.to_string(), source })
+}
+
+// SFTP's RMDIR removes only *empty* directories — there is no recursive delete in
+// the protocol — so the tree has to be walked and emptied first. Collects
+// directories breadth-first while deleting the files it passes, then removes the
+// directories in reverse discovery order, which guarantees children go before the
+// parent that holds them. Iterative rather than recursive to keep the future sized
+// (an async fn cannot recurse without boxing).
+async fn remove_dir_all(sftp: &SftpSession, root: &str) -> Result<(), SshError> {
+    let mut dirs = vec![root.to_string()];
+    let mut next = 0;
+
+    while next < dirs.len() {
+        let dir = dirs[next].clone();
+        next += 1;
+
+        for entry in list_dir(sftp, &dir).await? {
+            // `read_dir` filters these, but nothing this destructive should depend
+            // on that: recursing into `..` would walk *up* and delete the parent.
+            if entry.name == "." || entry.name == ".." {
+                continue;
+            }
+            let child = join_remote(&dir, &entry.name);
+            // A symlink reports as a file here (directory listings carry lstat
+            // attributes), so links are unlinked rather than followed and emptied.
+            if entry.is_dir {
+                dirs.push(child);
+            } else {
+                remove_file(sftp, &child).await?;
+            }
+        }
+    }
+
+    for dir in dirs.into_iter().rev() {
+        sftp.remove_dir(&dir).await.map_err(|source| SshError::RemoteDelete { path: dir, source })?;
+    }
+    Ok(())
 }
 
 pub async fn rename(sftp: &SftpSession, from: &str, to: &str) -> Result<(), SshError> {
