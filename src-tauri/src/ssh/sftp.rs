@@ -11,12 +11,22 @@ use super::{client::Client, SshError};
 
 const UPLOAD_CHUNK_SIZE: usize = 256 * 1024;
 
+// The mode half of an SFTP `permissions` attribute: three special bits
+// (setuid/setgid/sticky) above the owner/group/other r-w-x triads. The bits above
+// these hold the file *type*, which chmod cannot change and a setstat must not
+// send.
+pub const MODE_BITS: u32 = 0o7777;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SftpEntry {
     pub name: String,
     pub is_dir: bool,
+    pub is_symlink: bool,
     pub size: Option<u64>,
     pub modified: Option<i64>,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,11 +63,18 @@ pub async fn list_dir(sftp: &SftpSession, path: &str) -> Result<Vec<SftpEntry>, 
     let mut result: Vec<SftpEntry> = entries
         .map(|entry| {
             let metadata = entry.metadata();
+            let file_type = metadata.file_type();
             SftpEntry {
                 name: entry.file_name(),
-                is_dir: metadata.file_type().is_dir(),
+                is_dir: file_type.is_dir(),
+                // A directory listing carries lstat attributes, so this is the
+                // link's own type — and the mode below is the link's own mode.
+                is_symlink: file_type.is_symlink(),
                 size: metadata.size,
                 modified: metadata.mtime.map(|m| m as i64),
+                mode: metadata.permissions.map(|bits| bits & MODE_BITS),
+                uid: metadata.uid,
+                gid: metadata.gid,
             }
         })
         .collect();
@@ -271,4 +288,61 @@ async fn remove_dir_all(sftp: &SftpSession, root: &str) -> Result<(), SshError> 
 
 pub async fn rename(sftp: &SftpSession, from: &str, to: &str) -> Result<(), SshError> {
     sftp.rename(from, to).await.map_err(SshError::Sftp)
+}
+
+// Changes one entry's mode. Only the mode bits are sent: a setstat whose
+// `permissions` field still carried the type bits read back from a listing would
+// be asking the server to chmod a file into a different kind of file. OpenSSH
+// masks the value before calling chmod(2), but nothing in the protocol says a
+// server must.
+pub async fn set_mode(sftp: &SftpSession, path: &str, mode: u32) -> Result<(), SshError> {
+    let mut attrs = Metadata::empty();
+    attrs.permissions = Some(mode & MODE_BITS);
+    sftp.set_metadata(path, attrs)
+        .await
+        .map_err(|source| SshError::RemoteChmod { path: path.to_string(), source })
+}
+
+// Applies one mode to a whole subtree, like `chmod -R`. SFTP has no recursive
+// setstat, so the tree is walked the same way the recursive delete walks it.
+//
+// The walk is completed *before* anything is chmod-ed, and the modes are then
+// applied to files first and to directories deepest-first. Applying as we
+// discover would let the operation lock itself out — a mode without owner
+// execute (0644, 0600) on a directory we still have to descend into makes the
+// next `read_dir` fail — and the same ordering means a half-finished run never
+// leaves an unreachable directory behind.
+//
+// Symlinks are skipped: a setstat follows the link, so chmod-ing one would
+// silently re-mode whatever it points at, possibly outside this tree. `chmod -R`
+// leaves them alone for the same reason.
+pub async fn set_mode_recursive(sftp: &SftpSession, root: &str, mode: u32) -> Result<(), SshError> {
+    let mut dirs = vec![root.to_string()];
+    let mut files: Vec<String> = Vec::new();
+    let mut next = 0;
+
+    while next < dirs.len() {
+        let dir = dirs[next].clone();
+        next += 1;
+
+        for entry in list_dir(sftp, &dir).await? {
+            if entry.name == "." || entry.name == ".." || entry.is_symlink {
+                continue;
+            }
+            let child = join_remote(&dir, &entry.name);
+            if entry.is_dir {
+                dirs.push(child);
+            } else {
+                files.push(child);
+            }
+        }
+    }
+
+    for file in &files {
+        set_mode(sftp, file, mode).await?;
+    }
+    for dir in dirs.iter().rev() {
+        set_mode(sftp, dir, mode).await?;
+    }
+    Ok(())
 }

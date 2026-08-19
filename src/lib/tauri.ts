@@ -109,6 +109,10 @@ export function sftpRename(sessionId: string, from: string, to: string) {
   return invoke<void>("sftp_rename", { sessionId, from, to });
 }
 
+export function sftpSetMode(sessionId: string, path: string, mode: number, recursive: boolean) {
+  return invoke<void>("sftp_set_mode", { sessionId, path, mode, recursive });
+}
+
 export function sftpOpenFile(
   sessionId: string,
   remotePath: string,

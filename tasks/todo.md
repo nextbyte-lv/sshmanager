@@ -165,3 +165,50 @@ rather than assuming from memory. The one design mistake (home-dir-capped
 navigation) came from reaching for SFTP's relative-path convenience (`.`)
 without thinking through what it does to "go up" semantics — worth remembering
 for any future relative-path handling.
+
+---
+
+# SFTP file permissions (chmod)
+
+## Backend (`src-tauri/src/`)
+- [x] `ssh/sftp.rs`: `SftpEntry` now carries `mode` (masked to `MODE_BITS`
+  = `0o7777`, type bits stripped), `is_symlink`, `uid`, `gid` — all of it already
+  present in the `readdir` attributes, so the listing costs no extra round-trips
+- [x] `ssh/sftp.rs::set_mode` — `setstat` with only the `permissions` field set
+- [x] `ssh/sftp.rs::set_mode_recursive` — `chmod -R` over SFTP, which has no
+  recursive setstat. Walks the whole tree *first*, then applies to files and to
+  directories deepest-first; symlinks skipped (setstat follows them)
+- [x] `ssh/mod.rs`: `SshError::RemoteChmod { path, source }`, wired into
+  `is_permission_denied` so the sudo retry can trigger on it
+- [x] `commands/sftp.rs::sftp_set_mode` — validates the mode carries no type bits,
+  refuses a recursive run anchored at `/`, falls back to `elevated_chmod`
+  (`sudo chmod [-R] NNNN -- path`) when and only when the server said permission
+  denied, exactly like the existing write/delete escalation
+
+## Frontend (`src/`)
+- [x] `lib/permissions.ts` (new): mode is one number; octal parse/format
+  (3 digits, 4 once a special bit is set), `ls -l` symbolic rendering with
+  `s`/`S`/`t`/`T`, bit get/set helpers, the four presets
+- [x] `components/PermissionsDialog.tsx` (new): octal field + 3x3 r/w/x grid +
+  setuid/setgid/sticky + presets + "apply to everything inside this folder" for
+  directories, all views of the same number. Failures show in the dialog and it
+  stays open
+- [x] `SftpPanel.tsx`: each row shows its mode as clickable octal (tooltip has the
+  symbolic form), plus a lock button in the hover actions; both open the dialog
+
+## Verification
+- [x] `cargo check` + `cargo test` clean; new test pins the escalated command line
+  (`chmod -R 0755 -- '/srv/site'`) — mode is text by the time it reaches a shell,
+  and `644` vs `0644` vs a dropped special bit are three different outcomes
+- [x] `npx tsc --noEmit` + `npm run build` clean
+- [x] `lib/permissions.ts` checked against real `ls -l` output for 11 modes
+  (incl. `1777`→`drwxrwxrwt`, `1666`→`drw-rw-rwT`, `4655`→`-rwSr-xr-x`) and the
+  parse/edit helpers for octal round-trips and rejected input
+- [ ] Exercise live: mode column shows real modes; change a file you own; change a
+  root-owned file (expect the sudo path); recursive on a small tree; a mode the
+  server refuses outright (expect the message in the dialog, dialog stays open)
+
+## Descoped
+Owner/group (`chown`). Ownership isn't mode, a non-root user can't give a file
+away so it would be a sudo-only feature, and SFTP's `setstat` only speaks numeric
+uid/gid. Worth adding to the same dialog later if it comes up.

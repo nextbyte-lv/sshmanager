@@ -96,6 +96,45 @@ pub async fn sftp_delete(
 }
 
 #[tauri::command]
+pub async fn sftp_set_mode(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    mode: u32,
+    recursive: bool,
+) -> Result<(), String> {
+    // The frontend builds the mode from a checkbox grid and an octal field, so it
+    // can only ever be a real mode — but this is the boundary, and a value with
+    // type bits in it would ask the server to chmod a file into another kind.
+    if mode & !sftp::MODE_BITS != 0 {
+        return Err(format!("{mode:o} is not a valid file mode"));
+    }
+    // The same guard the recursive delete carries: a recursive chmod anchored at
+    // the filesystem root would re-mode the whole machine, and no panel action
+    // legitimately asks for that.
+    if recursive && path.trim_matches('/').is_empty() {
+        return Err("refusing to change permissions of the whole filesystem".to_string());
+    }
+
+    let session = get_sftp(&state, &session_id).await?;
+    let result = if recursive {
+        sftp::set_mode_recursive(&session, &path, mode).await
+    } else {
+        sftp::set_mode(&session, &path, mode).await
+    };
+
+    match result {
+        Ok(()) => Ok(()),
+        // Same escalation rule as the write and delete paths: retry under sudo only
+        // when the server refused for lack of permission. A recursive run may have
+        // re-moded part of the tree before being refused; re-applying the same mode
+        // to all of it under sudo is idempotent.
+        Err(e) if e.is_permission_denied() => elevated_chmod(&state, &session_id, &path, mode, recursive).await,
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
 pub async fn sftp_rename(
     state: State<'_, AppState>,
     session_id: String,
@@ -237,9 +276,16 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
+// `chmod [-R] MODE -- PATH`: the mode is a positional argument, so `--` goes after
+// it and only guards the path. Four octal digits keep the special bits, and a
+// leading zero leaves no doubt the value is octal.
+fn chmod_args(mode: u32, recursive: bool, path: &str) -> String {
+    format!("chmod {}{:04o} -- {}", if recursive { "-R " } else { "" }, mode, shell_quote(path))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::shell_quote;
+    use super::{chmod_args, shell_quote};
 
     // The remote path comes from the server's own directory listing, so it can hold
     // anything a filename may hold — it must never be able to end the quoted string
@@ -250,6 +296,17 @@ mod tests {
         assert_eq!(shell_quote("/srv/my scripts/x.sh"), "'/srv/my scripts/x.sh'");
         assert_eq!(shell_quote("/tmp/$(id).sh"), "'/tmp/$(id).sh'");
         assert_eq!(shell_quote("/tmp/a'; rm -rf /; '.sh"), r"'/tmp/a'\''; rm -rf /; '\''.sh'");
+    }
+
+    // The mode reaches the shell as text, where `644` vs `0644` vs a dropped
+    // special bit are three different outcomes on the file.
+    #[test]
+    fn renders_the_escalated_chmod_as_octal() {
+        assert_eq!(chmod_args(0o644, false, "/etc/hosts"), "chmod 0644 -- '/etc/hosts'");
+        assert_eq!(chmod_args(0o755, true, "/srv/site"), "chmod -R 0755 -- '/srv/site'");
+        assert_eq!(chmod_args(0o1777, false, "/tmp"), "chmod 1777 -- '/tmp'");
+        assert_eq!(chmod_args(0o4755, false, "/usr/bin/x"), "chmod 4755 -- '/usr/bin/x'");
+        assert_eq!(chmod_args(0, false, "/tmp/locked"), "chmod 0000 -- '/tmp/locked'");
     }
 }
 
@@ -349,4 +406,21 @@ async fn elevated_delete(state: &AppState, session_id: &str, path: &str, is_dir:
     run_with_sudo(state, session_id, &args)
         .await
         .map_err(|reason| format!("cannot delete {path}, and sudo could not either: {reason}"))
+}
+
+// And again for the mode: chmod(2) is refused for anyone who is not the file's
+// owner (or root), so a file the login user can read and even edit through the
+// sudo write path above still can't be re-moded over SFTP. The mode is re-issued
+// as a plain `chmod` on an exec channel, printed as four octal digits so the
+// special bits survive.
+async fn elevated_chmod(
+    state: &AppState,
+    session_id: &str,
+    path: &str,
+    mode: u32,
+    recursive: bool,
+) -> Result<(), String> {
+    run_with_sudo(state, session_id, &chmod_args(mode, recursive, path))
+        .await
+        .map_err(|reason| format!("cannot change permissions of {path}, and sudo could not either: {reason}"))
 }

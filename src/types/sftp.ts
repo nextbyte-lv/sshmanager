@@ -1,8 +1,13 @@
 export interface SftpEntry {
   name: string;
   is_dir: boolean;
+  is_symlink: boolean;
   size: number | null;
   modified: number | null;
+  /** Mode bits only (0o7777), no file-type bits. Null if the server omitted them. */
+  mode: number | null;
+  uid: number | null;
+  gid: number | null;
 }
 
 export type UploadEvent =

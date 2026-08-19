@@ -12,6 +12,7 @@ import {
     FolderUp,
     HardDrive,
     Loader2,
+    Lock,
     Pencil,
     RefreshCw,
     Star,
@@ -22,6 +23,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PermissionsDialog } from "@/components/PermissionsDialog";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -30,6 +32,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { formatOctal, formatSymbolic } from "@/lib/permissions";
 import {
     addFavoritePath,
     removeFavoritePath,
@@ -41,6 +44,7 @@ import {
     sftpMkdir,
     sftpOpenFile,
     sftpRename,
+    sftpSetMode,
     sftpUpload,
 } from "@/lib/tauri";
 import type { ConnectionProfile } from "@/types/connection";
@@ -133,6 +137,9 @@ export function SftpPanel({
         {},
     );
     const [pendingDelete, setPendingDelete] = useState<SftpEntry | null>(null);
+    const [permissionsTarget, setPermissionsTarget] = useState<SftpEntry | null>(
+        null,
+    );
     const uploadSampleRef = useRef<{ time: number; bytes: number } | null>(
         null,
     );
@@ -357,6 +364,19 @@ export function SftpPanel({
         } catch (err) {
             setError(String(err));
         }
+    }
+
+    // Left to throw: the dialog shows the failure itself and stays open, so a
+    // refusal the sudo retry couldn't get past can be read next to the mode that
+    // caused it.
+    async function handleSetMode(
+        entry: SftpEntry,
+        mode: number,
+        recursive: boolean,
+    ) {
+        if (path === null) return;
+        await sftpSetMode(sessionId, joinPath(path, entry.name), mode, recursive);
+        refresh();
     }
 
     async function handleAddFavorite() {
@@ -620,6 +640,16 @@ export function SftpPanel({
                                         );
                                     return null;
                                 })()}
+                            {entry.mode !== null && (
+                                <button
+                                    type="button"
+                                    className="shrink-0 cursor-pointer font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                                    title={`${formatSymbolic(entry.mode, entry.is_dir, entry.is_symlink)} — click to change permissions`}
+                                    onClick={() => setPermissionsTarget(entry)}
+                                >
+                                    {formatOctal(entry.mode)}
+                                </button>
+                            )}
                             <span className="shrink-0 text-xs text-muted-foreground">
                                 {entry.is_dir ? "" : formatSize(entry.size)}
                             </span>
@@ -647,6 +677,14 @@ export function SftpPanel({
                                 <Button
                                     size="icon-xs"
                                     variant="ghost"
+                                    title="Permissions"
+                                    onClick={() => setPermissionsTarget(entry)}
+                                >
+                                    <Lock />
+                                </Button>
+                                <Button
+                                    size="icon-xs"
+                                    variant="ghost"
                                     title="Rename"
                                     onClick={() => handleRename(entry)}
                                 >
@@ -664,6 +702,19 @@ export function SftpPanel({
                         </div>
                     ))}
             </div>
+
+            <PermissionsDialog
+                open={permissionsTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPermissionsTarget(null);
+                }}
+                entry={permissionsTarget}
+                path={joinPath(path ?? "", permissionsTarget?.name ?? "")}
+                onApply={async (mode, recursive) => {
+                    if (permissionsTarget)
+                        await handleSetMode(permissionsTarget, mode, recursive);
+                }}
+            />
 
             <ConfirmDialog
                 open={pendingDelete !== null}

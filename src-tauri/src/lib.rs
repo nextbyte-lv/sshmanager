@@ -56,6 +56,7 @@ pub fn run() {
             commands::sftp::sftp_mkdir,
             commands::sftp::sftp_delete,
             commands::sftp::sftp_rename,
+            commands::sftp::sftp_set_mode,
             commands::sftp::sftp_open_file,
         ])
         .run(tauri::generate_context!())
