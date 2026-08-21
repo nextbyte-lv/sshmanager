@@ -10,6 +10,14 @@ export interface SftpEntry {
   gid: number | null;
 }
 
+/** Recursive size of one directory, summed on the remote by `du`. */
+export interface DirSize {
+  path: string;
+  bytes: number;
+  /** True when part of the tree was unreadable, so `bytes` is a lower bound. */
+  partial: boolean;
+}
+
 export type UploadEvent =
   | { type: "started"; path: string; total_bytes: number }
   | { type: "progress"; path: string; bytes_done: number; total_bytes: number }

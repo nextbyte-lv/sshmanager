@@ -224,3 +224,22 @@ gitignored, disposable build output; the only cost is one full rebuild. Don't
 investigate — the stale-cache-after-move symptom always has the same one-line
 fix, and grepping the cache to surgically patch it wastes far more time than the
 rebuild it tries to avoid.
+
+## `npx <tool>` for a tool the project does not depend on rewrites the manifest
+
+Running `npx prettier --write src/...` to tidy formatting did three unwanted
+things at once. Prettier is not a dependency here, so npx installed it, and that
+install resolved every dependency range afresh and wrote the results back:
+`package.json` gained bumped carets (`lucide-react` `^1.25.0` -> `^1.33.0`) and
+`package-lock.json` picked up ~60 transitive version changes. `node_modules` was
+refreshed to match, so the lockfile and the installed tree no longer agreed once
+the manifest edits were reverted (`npm ci` puts them back in step).
+
+The formatting itself was the third problem: with no `.prettierrc` in the repo,
+prettier applied its own defaults and reformatted whole files — 1400 changed
+lines in `SftpPanel.tsx` alone — burying the actual change.
+
+Root cause: `npx` on a missing package is an install, not a sandboxed run, and
+npm treats any install as licence to re-resolve the manifest. There is no
+formatter configured for this project; match the surrounding file's style by hand
+instead (4-space indent under `src/components/`, 2-space under `src/lib/`).

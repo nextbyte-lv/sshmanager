@@ -15,6 +15,7 @@ import {
     Lock,
     Pencil,
     RefreshCw,
+    Sigma,
     Star,
     Terminal,
     Trash2,
@@ -39,6 +40,7 @@ import {
     sendInput,
     sftpCanonicalize,
     sftpDelete,
+    sftpDirSizes,
     sftpDownload,
     sftpListDir,
     sftpMkdir,
@@ -48,7 +50,7 @@ import {
     sftpUpload,
 } from "@/lib/tauri";
 import type { ConnectionProfile } from "@/types/connection";
-import type { FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
+import type { DirSize, FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
 
 interface UploadProgress {
     currentPath: string;
@@ -95,7 +97,12 @@ function formatSize(size: number | null): string {
 
 function formatModified(modified: number | null): string {
     if (modified === null) return "";
-    return new Date(modified * 1000).toLocaleString();
+    const d = new Date(modified * 1000);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return (
+        `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}` +
+        ` ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    );
 }
 
 function formatSpeed(bps: number | null): string {
@@ -120,6 +127,56 @@ function formatEta(seconds: number | null): string {
     return `${hours}h ${mins}m left`;
 }
 
+// The size column. A file size comes straight from the listing; a folder has no
+// size in SFTP at all, so it stays a button until someone asks for it to be
+// measured.
+function EntrySize({
+    entry,
+    size,
+    sizing,
+    onCalculate,
+}: {
+    entry: SftpEntry;
+    size: DirSize | undefined;
+    sizing: boolean;
+    onCalculate: () => void;
+}) {
+    if (!entry.is_dir)
+        return (
+            <span className="shrink-0 text-xs text-muted-foreground">
+                {formatSize(entry.size)}
+            </span>
+        );
+    if (sizing)
+        return (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        );
+    if (size)
+        return (
+            <span
+                className="shrink-0 text-xs text-muted-foreground"
+                title={
+                    size.partial
+                        ? `at least ${formatSize(size.bytes)} — part of this folder could not be read`
+                        : undefined
+                }
+            >
+                {size.partial ? "~" : ""}
+                {formatSize(size.bytes)}
+            </span>
+        );
+    return (
+        <button
+            type="button"
+            className="shrink-0 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            title="Calculate folder size"
+            onClick={onCalculate}
+        >
+            –
+        </button>
+    );
+}
+
 export function SftpPanel({
     sessionId,
     width,
@@ -136,6 +193,11 @@ export function SftpPanel({
     const [syncStatus, setSyncStatus] = useState<Record<string, FileSyncEvent>>(
         {},
     );
+    // Folder sizes are keyed by absolute path and only ever populated on request:
+    // each one costs a full walk of the tree on the remote, so nothing here is
+    // computed just because a directory was listed.
+    const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({});
+    const [sizingPaths, setSizingPaths] = useState<string[]>([]);
     const [pendingDelete, setPendingDelete] = useState<SftpEntry | null>(null);
     const [permissionsTarget, setPermissionsTarget] = useState<SftpEntry | null>(
         null,
@@ -154,6 +216,8 @@ export function SftpPanel({
         if (path === null) return;
         setLoading(true);
         setError(null);
+        // A size measured against the previous listing must not outlive it.
+        setDirSizes({});
         sftpListDir(sessionId, path)
             .then(setEntries)
             .catch((err) => setError(String(err)))
@@ -324,6 +388,28 @@ export function SftpPanel({
         }
     }
 
+    // One request for however many folders were asked for: the backend turns the
+    // whole list into a single `du`, so sizing a directory full of folders costs
+    // the same round trip as sizing one of them.
+    async function calculateDirSizes(paths: string[]) {
+        if (paths.length === 0) return;
+        setSizingPaths((prev) =>
+            prev.concat(paths.filter((p) => !prev.includes(p))),
+        );
+        try {
+            const sizes = await sftpDirSizes(sessionId, paths);
+            setDirSizes((prev) => {
+                const next = { ...prev };
+                for (const size of sizes) next[size.path] = size;
+                return next;
+            });
+        } catch (err) {
+            setError(String(err));
+        } finally {
+            setSizingPaths((prev) => prev.filter((p) => !paths.includes(p)));
+        }
+    }
+
     async function handleNewFolder() {
         if (path === null) return;
         const name = window.prompt("New folder name");
@@ -402,6 +488,25 @@ export function SftpPanel({
         }
     }
 
+    // Folders in this listing with no size yet: what the toolbar button measures,
+    // and what tells it whether there is anything left to measure.
+    const unsizedFolders =
+        path === null
+            ? []
+            : entries
+                  .filter(
+                      (entry) =>
+                          entry.is_dir &&
+                          entry.name !== "." &&
+                          entry.name !== "..",
+                  )
+                  .map((entry) => joinPath(path, entry.name))
+                  .filter(
+                      (folder) =>
+                          !(folder in dirSizes) &&
+                          !sizingPaths.includes(folder),
+                  );
+
     const segments =
         path === null || path === "/" ? [] : path.split("/").filter(Boolean);
 
@@ -426,6 +531,15 @@ export function SftpPanel({
                     onClick={refresh}
                 >
                     <RefreshCw />
+                </Button>
+                <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    title="Calculate folder sizes"
+                    disabled={unsizedFolders.length === 0}
+                    onClick={() => void calculateDirSizes(unsizedFolders)}
+                >
+                    <Sigma />
                 </Button>
                 <Button
                     size="icon-xs"
@@ -596,111 +710,118 @@ export function SftpPanel({
                 )}
                 {!loading &&
                     path !== null &&
-                    entries.map((entry) => (
-                        <div
-                            key={entry.name}
-                            className="group flex items-center gap-1.5 px-2 py-1 hover:bg-muted"
-                        >
-                            {entry.is_dir ? (
-                                <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                            ) : (
-                                <File className="size-3.5 shrink-0 text-muted-foreground" />
-                            )}
-                            <button
-                                type="button"
-                                className="min-w-0 flex-1 truncate text-left text-xs"
-                                onDoubleClick={() =>
-                                    entry.is_dir
-                                        ? setPath(joinPath(path, entry.name))
-                                        : void handleOpen(entry)
-                                }
-                                title={`${entry.name}${entry.modified ? ` — ${formatModified(entry.modified)}` : ""}`}
+                    entries.map((entry) => {
+                        const entryPath = joinPath(path, entry.name);
+                        return (
+                            <div
+                                key={entry.name}
+                                className="group flex items-center gap-1.5 px-2 py-1 hover:bg-muted"
                             >
-                                {entry.name}
-                            </button>
-                            {!entry.is_dir &&
-                                (() => {
-                                    const sync =
-                                        syncStatus[joinPath(path, entry.name)];
-                                    if (sync?.type === "uploading")
-                                        return (
-                                            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                                        );
-                                    if (
-                                        sync?.type === "uploaded" &&
-                                        sync.elevated
-                                    )
-                                        return (
-                                            <span
-                                                className="shrink-0 text-[10px] uppercase text-muted-foreground"
-                                                title="Saved with sudo — this file is not writable by your login user"
-                                            >
-                                                sudo
-                                            </span>
-                                        );
-                                    return null;
-                                })()}
-                            {entry.mode !== null && (
+                                {entry.is_dir ? (
+                                    <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                                ) : (
+                                    <File className="size-3.5 shrink-0 text-muted-foreground" />
+                                )}
                                 <button
                                     type="button"
-                                    className="shrink-0 cursor-pointer font-mono text-[10px] text-muted-foreground hover:text-foreground"
-                                    title={`${formatSymbolic(entry.mode, entry.is_dir, entry.is_symlink)} — click to change permissions`}
-                                    onClick={() => setPermissionsTarget(entry)}
+                                    className="min-w-0 flex-1 truncate text-left text-xs"
+                                    onDoubleClick={() =>
+                                        entry.is_dir
+                                            ? setPath(entryPath)
+                                            : void handleOpen(entry)
+                                    }
+                                    title={`${entry.name}${entry.modified ? ` — ${formatModified(entry.modified)}` : ""}`}
                                 >
-                                    {formatOctal(entry.mode)}
+                                    {entry.name}
                                 </button>
-                            )}
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                                {entry.is_dir ? "" : formatSize(entry.size)}
-                            </span>
-                            <div className="flex shrink-0 opacity-0 group-hover:opacity-100">
-                                {!entry.is_dir && (
+                                {!entry.is_dir &&
+                                    (() => {
+                                        const sync = syncStatus[entryPath];
+                                        if (sync?.type === "uploading")
+                                            return (
+                                                <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                                            );
+                                        if (
+                                            sync?.type === "uploaded" &&
+                                            sync.elevated
+                                        )
+                                            return (
+                                                <span
+                                                    className="shrink-0 text-[10px] uppercase text-muted-foreground"
+                                                    title="Saved with sudo — this file is not writable by your login user"
+                                                >
+                                                    sudo
+                                                </span>
+                                            );
+                                        return null;
+                                    })()}
+                                {entry.mode !== null && (
+                                    <button
+                                        type="button"
+                                        className="shrink-0 cursor-pointer font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                                        title={`${formatSymbolic(entry.mode, entry.is_dir, entry.is_symlink)} — click to change permissions`}
+                                        onClick={() => setPermissionsTarget(entry)}
+                                    >
+                                        {formatOctal(entry.mode)}
+                                    </button>
+                                )}
+                                <EntrySize
+                                    entry={entry}
+                                    size={dirSizes[entryPath]}
+                                    sizing={sizingPaths.includes(entryPath)}
+                                    onCalculate={() =>
+                                        void calculateDirSizes([entryPath])
+                                    }
+                                />
+                                <div className="flex shrink-0 opacity-0 group-hover:opacity-100">
+                                    {!entry.is_dir && (
+                                        <Button
+                                            size="icon-xs"
+                                            variant="ghost"
+                                            title="Open"
+                                            onClick={() => handleOpen(entry)}
+                                        >
+                                            <ExternalLink />
+                                        </Button>
+                                    )}
+                                    {!entry.is_dir && (
+                                        <Button
+                                            size="icon-xs"
+                                            variant="ghost"
+                                            title="Download"
+                                            onClick={() => handleDownload(entry)}
+                                        >
+                                            <ArrowUp className="rotate-180" />
+                                        </Button>
+                                    )}
                                     <Button
                                         size="icon-xs"
                                         variant="ghost"
-                                        title="Open"
-                                        onClick={() => handleOpen(entry)}
+                                        title="Permissions"
+                                        onClick={() => setPermissionsTarget(entry)}
                                     >
-                                        <ExternalLink />
+                                        <Lock />
                                     </Button>
-                                )}
-                                {!entry.is_dir && (
                                     <Button
                                         size="icon-xs"
                                         variant="ghost"
-                                        title="Download"
-                                        onClick={() => handleDownload(entry)}
+                                        title="Rename"
+                                        onClick={() => handleRename(entry)}
                                     >
-                                        <ArrowUp className="rotate-180" />
+                                        <Pencil />
                                     </Button>
-                                )}
-                                <Button
-                                    size="icon-xs"
-                                    variant="ghost"
-                                    title="Permissions"
-                                    onClick={() => setPermissionsTarget(entry)}
-                                >
-                                    <Lock />
-                                </Button>
-                                <Button
-                                    size="icon-xs"
-                                    variant="ghost"
-                                    title="Rename"
-                                    onClick={() => handleRename(entry)}
-                                >
-                                    <Pencil />
-                                </Button>
-                                <Button
-                                    size="icon-xs"
-                                    variant="ghost"
-                                    title="Delete"
-                                    onClick={() => setPendingDelete(entry)}
-                                >
-                                    <Trash2 />
-                                </Button>
+                                    <Button
+                                        size="icon-xs"
+                                        variant="ghost"
+                                        title="Delete"
+                                        onClick={() => setPendingDelete(entry)}
+                                    >
+                                        <Trash2 />
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
             </div>
 
             <PermissionsDialog

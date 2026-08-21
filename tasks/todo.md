@@ -212,3 +212,29 @@ for any future relative-path handling.
 Owner/group (`chown`). Ownership isn't mode, a non-root user can't give a file
 away so it would be a sudo-only feature, and SFTP's `setstat` only speaks numeric
 uid/gid. Worth adding to the same dialog later if it comes up.
+
+## Folder sizes in the SFTP panel
+
+SFTP has no "size of a directory" — `read_dir` returns the directory inode's own
+size (a few KB), which is why the panel showed sizes for files only. A real
+folder size means summing the tree, so it is computed on demand over an exec
+channel with `du`, never as part of a listing (a listing of `/` would stat every
+file on the machine before the panel could paint).
+
+- [x] `ssh/exec.rs`: capture stdout as well as stderr in `ExecOutput`
+- [x] `ssh/sftp.rs`: `dir_sizes()` — one batched `du -sb`, `du -sk` fallback for
+      non-GNU `du`, per-path result carrying a `partial` flag when `du` couldn't
+      read part of the tree
+- [x] `commands/sftp.rs`: `sftp_dir_sizes` command + registration in `lib.rs`
+- [x] `types/sftp.ts` + `lib/tauri.ts`: `DirSize`, `sftpDirSizes()`
+- [x] `SftpPanel.tsx`: per-folder click-to-calculate in the size column, and a
+      toolbar button that sizes every folder in view in a single round trip
+
+### Review
+
+Sizes are cached per directory listing and cleared on navigate/refresh so a
+number never outlives the tree it measured. A partial result (unreadable
+subdirectory) renders with a `~` and says so on hover rather than silently
+under-reporting. No sudo escalation here on purpose: unlike a write or a chmod,
+`du` failing on part of a tree still returns a usable number, and `sudo du -sb`
+over an arbitrary path is a lot of privilege for a display nicety.

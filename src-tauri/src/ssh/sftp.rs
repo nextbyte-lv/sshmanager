@@ -29,6 +29,17 @@ pub struct SftpEntry {
     pub gid: Option<u32>,
 }
 
+// The recursive size of one directory. SFTP itself has no such attribute — a
+// directory's `size` in a listing is its own inode's size — so this is summed on
+// the remote by `du` over an exec channel (see `commands::sftp::sftp_dir_sizes`).
+#[derive(Debug, Clone, Serialize)]
+pub struct DirSize {
+    pub path: String,
+    pub bytes: u64,
+    // True when part of the tree was unreadable, making `bytes` a lower bound.
+    pub partial: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UploadEvent {

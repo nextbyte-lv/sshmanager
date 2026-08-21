@@ -6,6 +6,7 @@ use super::{client::Client, SshError};
 
 pub struct ExecOutput {
     pub status: u32,
+    pub stdout: String,
     pub stderr: String,
 }
 
@@ -28,10 +29,14 @@ pub async fn run(
     }
     channel.eof().await.map_err(SshError::Channel)?;
 
+    let mut stdout = String::new();
     let mut stderr = String::new();
     let mut status = None;
     while let Some(msg) = channel.wait().await {
         match msg {
+            ChannelMsg::Data { ref data } => {
+                stdout.push_str(&String::from_utf8_lossy(data));
+            }
             ChannelMsg::ExtendedData { ref data, ext } if ext == 1 => {
                 stderr.push_str(&String::from_utf8_lossy(data));
             }
@@ -42,5 +47,5 @@ pub async fn run(
 
     // No exit status at all means the command never reported one (channel closed
     // early); treat that as a failure rather than a silent success.
-    Ok(ExecOutput { status: status.unwrap_or(1), stderr })
+    Ok(ExecOutput { status: status.unwrap_or(1), stdout, stderr })
 }

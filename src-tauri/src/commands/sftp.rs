@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::secrets::{self, SecretKind};
 use crate::ssh::client::Client;
-use crate::ssh::sftp::{self, FileSyncEvent, SftpEntry, UploadEvent};
+use crate::ssh::sftp::{self, DirSize, FileSyncEvent, SftpEntry, UploadEvent};
 use crate::ssh::{self};
 use crate::state::{AppState, FileStamp, WatchedFile};
 use crate::storage::AuthType;
@@ -43,6 +43,46 @@ pub async fn sftp_list_dir(
 ) -> Result<Vec<SftpEntry>, String> {
     let session = get_sftp(&state, &session_id).await?;
     sftp::list_dir(&session, &path).await.map_err(|e| e.to_string())
+}
+
+// Recursive sizes for the given directories. Deliberately a separate, explicit
+// call rather than part of `sftp_list_dir`: SFTP has no directory-size attribute,
+// so every one of these is a full walk of the tree, and doing that eagerly for a
+// listing of `/` would stat the whole machine before the panel could paint.
+//
+// The walk runs on the remote as a single `du`, not as a recursive `read_dir` from
+// here — one round trip and the server's own directory cache, instead of one
+// request per directory across the wire.
+#[tauri::command]
+pub async fn sftp_dir_sizes(
+    state: State<'_, AppState>,
+    session_id: String,
+    paths: Vec<String>,
+) -> Result<Vec<DirSize>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (ssh, _) = session_ssh(&state, &session_id)?;
+
+    // GNU `du -b` counts apparent bytes, which is the same thing the panel shows
+    // for files. BSD, macOS and older busybox `du` reject `-b`, so those fall back
+    // to POSIX `-k` and its 1024-byte blocks. Emptiness of stdout picks the
+    // fallback, not the exit status: a run that merely hit an unreadable
+    // subdirectory also exits nonzero, yet still prints usable totals.
+    let apparent = ssh::exec::run(&ssh, &du_command(&paths, true), None).await.map_err(|e| e.to_string())?;
+    if !apparent.stdout.trim().is_empty() {
+        return Ok(parse_du(&apparent.stdout, &apparent.stderr, 1, &paths));
+    }
+
+    let blocks = ssh::exec::run(&ssh, &du_command(&paths, false), None).await.map_err(|e| e.to_string())?;
+    if !blocks.stdout.trim().is_empty() {
+        return Ok(parse_du(&blocks.stdout, &blocks.stderr, 1024, &paths));
+    }
+
+    Err(last_error_line(&blocks.stderr)
+        .or_else(|| last_error_line(&apparent.stderr))
+        .unwrap_or("the server reported no folder sizes")
+        .to_string())
 }
 
 #[tauri::command]
@@ -283,9 +323,70 @@ fn chmod_args(mode: u32, recursive: bool, path: &str) -> String {
     format!("chmod {}{:04o} -- {}", if recursive { "-R " } else { "" }, mode, shell_quote(path))
 }
 
+// `du -s<unit> -- PATH...`: `-s` collapses each argument to a single total line,
+// and the unit is `b` (apparent bytes, GNU) or `k` (1024-byte blocks, POSIX).
+//
+// Run through `env` so the C locale is forced without a `VAR=value cmd` prefix,
+// which the account's *login* shell may not accept (csh and fish both reject it,
+// the same trap the sudo path documents). The locale matters because GNU
+// coreutils quotes paths in its diagnostics the way the locale asks it to —
+// ‘/root’ in a UTF-8 locale, '/root' under C — and `names_path` reads those
+// diagnostics to decide whether a total is complete.
+fn du_command(paths: &[String], apparent: bool) -> String {
+    let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
+    format!("env LC_ALL=C du -s{} -- {}", if apparent { 'b' } else { 'k' }, quoted.join(" "))
+}
+
+// `du -s` writes one `<size>\t<path>` line per argument, echoing the path exactly
+// as it was given. Results are matched back by that echoed path rather than by
+// line order, because an argument `du` cannot stat at all prints no line and would
+// otherwise shift every result after it. Only requested paths are returned, so a
+// surprising echo cannot invent an entry; a name containing a tab or a newline is
+// the one case this can't recover, and that folder is simply left unsized.
+fn parse_du(stdout: &str, stderr: &str, unit_bytes: u64, paths: &[String]) -> Vec<DirSize> {
+    let sizes: std::collections::HashMap<&str, u64> = stdout
+        .lines()
+        .filter_map(|line| {
+            let (size, path) = line.split_once('\t')?;
+            Some((path.trim_end_matches('\r'), size.trim().parse::<u64>().ok()?))
+        })
+        .collect();
+
+    paths
+        .iter()
+        .filter_map(|path| {
+            let units = sizes.get(path.as_str())?;
+            Some(DirSize {
+                path: path.clone(),
+                bytes: units.saturating_mul(unit_bytes),
+                partial: names_path(stderr, path),
+            })
+        })
+        .collect()
+}
+
+// `du`'s exit status covers the whole run, so a batched call can't learn from it
+// which of its arguments it failed to read. The diagnostics do name the path —
+// `du: cannot read directory '/srv/log/private': Permission denied` — so a total
+// counts as partial when some diagnostic names that argument or something beneath
+// it. Matching `'<path>'` and `<path>/` rather than a bare substring keeps
+// `/srv/a` from being blamed for a failure under `/srv/ab`.
+fn names_path(stderr: &str, path: &str) -> bool {
+    let exact = format!("'{path}'");
+    let under = format!("{}/", path.trim_end_matches('/'));
+    stderr.lines().any(|line| line.contains(&exact) || line.contains(&under))
+}
+
+// The last non-empty stderr line. Both a refusal from `sudo` and a shell's reason
+// for never running a command at all (`du: not found`) end up there, and later
+// lines are the specific ones — earlier output is usually context leading up to it.
+fn last_error_line(stderr: &str) -> Option<&str> {
+    stderr.lines().map(str::trim).rfind(|line| !line.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{chmod_args, shell_quote};
+    use super::{chmod_args, du_command, names_path, parse_du, shell_quote};
 
     // The remote path comes from the server's own directory listing, so it can hold
     // anything a filename may hold — it must never be able to end the quoted string
@@ -307,6 +408,50 @@ mod tests {
         assert_eq!(chmod_args(0o1777, false, "/tmp"), "chmod 1777 -- '/tmp'");
         assert_eq!(chmod_args(0o4755, false, "/usr/bin/x"), "chmod 4755 -- '/usr/bin/x'");
         assert_eq!(chmod_args(0, false, "/tmp/locked"), "chmod 0000 -- '/tmp/locked'");
+    }
+    // With no operands at all `du` would silently size the working directory, so the
+    // command must never be built from an empty list (the caller returns early).
+    #[test]
+    fn builds_a_batched_du_per_unit() {
+        let paths = vec!["/srv/site".to_string(), "/srv/my logs".to_string()];
+        assert_eq!(du_command(&paths, true), "env LC_ALL=C du -sb -- '/srv/site' '/srv/my logs'");
+        assert_eq!(du_command(&paths, false), "env LC_ALL=C du -sk -- '/srv/site' '/srv/my logs'");
+    }
+
+    // The whole point of keying on the echoed path: `/var/empty` prints nothing at
+    // all, and a line-order mapping would hand its follower's size to it.
+    #[test]
+    fn matches_du_output_to_the_path_it_names() {
+        let paths = vec!["/a".to_string(), "/var/empty".to_string(), "/b".to_string()];
+        let stdout = "4096\t/a\n81920\t/b\n";
+        let sizes = parse_du(stdout, "", 1, &paths);
+        assert_eq!(sizes.len(), 2);
+        assert_eq!((sizes[0].path.as_str(), sizes[0].bytes), ("/a", 4096));
+        assert_eq!((sizes[1].path.as_str(), sizes[1].bytes), ("/b", 81920));
+    }
+
+    // `-k` reports 1024-byte blocks, so the fallback's numbers are only right after
+    // scaling; unrequested and unparsable lines must not become entries.
+    #[test]
+    fn scales_block_counts_and_ignores_noise() {
+        let paths = vec!["/srv".to_string()];
+        let stdout = "12\t/srv\n99\t/not-requested\nrubbish\n";
+        let sizes = parse_du(stdout, "", 1024, &paths);
+        assert_eq!(sizes.len(), 1);
+        assert_eq!(sizes[0].bytes, 12 * 1024);
+    }
+
+    // A total summed over a tree `du` could not fully read is a lower bound, and
+    // has to say so rather than pass for the real size.
+    #[test]
+    fn flags_the_total_whose_tree_was_unreadable() {
+        let stderr = "du: cannot read directory '/srv/ab/private': Permission denied\n";
+        assert!(names_path(stderr, "/srv/ab"));
+        // A prefix of another argument's path is not the same argument.
+        assert!(!names_path(stderr, "/srv/a"));
+        // The argument itself being unreadable is named without a trailing slash.
+        assert!(names_path("du: cannot read directory '/root': Permission denied", "/root"));
+        assert!(!names_path("", "/srv/ab"));
     }
 }
 
@@ -348,14 +493,7 @@ async fn run_with_sudo(state: &AppState, session_id: &str, args: &str) -> Result
     let output = ssh::exec::run(&ssh, &command, stdin.as_deref()).await.map_err(|e| e.to_string())?;
 
     if output.status != 0 {
-        return Err(output
-            .stderr
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .next_back()
-            .unwrap_or("sudo refused the operation")
-            .to_string());
+        return Err(last_error_line(&output.stderr).unwrap_or("sudo refused the operation").to_string());
     }
     Ok(())
 }

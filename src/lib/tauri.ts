@@ -5,7 +5,12 @@ import type {
   SecretKind,
   TerminalEvent,
 } from "@/types/connection";
-import type { FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
+import type {
+  DirSize,
+  FileSyncEvent,
+  SftpEntry,
+  UploadEvent,
+} from "@/types/sftp";
 
 export function listConnections() {
   return invoke<ConnectionProfile[]>("list_connections");
@@ -80,6 +85,10 @@ export function sftpCanonicalize(sessionId: string, path: string) {
 
 export function sftpListDir(sessionId: string, path: string) {
   return invoke<SftpEntry[]>("sftp_list_dir", { sessionId, path });
+}
+
+export function sftpDirSizes(sessionId: string, paths: string[]) {
+  return invoke<DirSize[]>("sftp_dir_sizes", { sessionId, paths });
 }
 
 export function sftpDownload(sessionId: string, remotePath: string, localPath: string) {

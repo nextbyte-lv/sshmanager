@@ -51,6 +51,7 @@ pub fn run() {
             commands::session::test_connection,
             commands::sftp::sftp_canonicalize,
             commands::sftp::sftp_list_dir,
+            commands::sftp::sftp_dir_sizes,
             commands::sftp::sftp_download,
             commands::sftp::sftp_upload,
             commands::sftp::sftp_mkdir,
