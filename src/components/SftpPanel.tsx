@@ -20,6 +20,7 @@ import {
     Terminal,
     Trash2,
     Upload,
+    X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -186,7 +187,14 @@ export function SftpPanel({
     const [path, setPath] = useState<string | null>(null);
     const [entries, setEntries] = useState<SftpEntry[]>([]);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    // Two error slots, deliberately separate. `listError` belongs to the current
+    // listing and every refresh clears it; `actionError` belongs to the last thing
+    // the user asked for, and only their next action clears it. They shared one
+    // slot before, and the `refresh()` at the end of an upload wiped the very
+    // message the upload had just produced — a transfer that failed outright
+    // looked like the button doing nothing at all.
+    const [listError, setListError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
         null,
     );
@@ -205,28 +213,37 @@ export function SftpPanel({
     const uploadSampleRef = useRef<{ time: number; bytes: number } | null>(
         null,
     );
+    // File-level failures reported over the upload channel, collected so the
+    // summary shown once the transfer ends can count and name them.
+    const uploadErrorsRef = useRef<string[]>([]);
 
     useEffect(() => {
         sftpCanonicalize(sessionId, ".")
             .then(setPath)
-            .catch((err) => setError(String(err)));
+            .catch((err) => setListError(String(err)));
     }, [sessionId]);
 
     const refresh = useCallback(() => {
         if (path === null) return;
         setLoading(true);
-        setError(null);
+        setListError(null);
         // A size measured against the previous listing must not outlive it.
         setDirSizes({});
         sftpListDir(sessionId, path)
             .then(setEntries)
-            .catch((err) => setError(String(err)))
+            .catch((err) => setListError(String(err)))
             .finally(() => setLoading(false));
     }, [sessionId, path]);
 
     useEffect(() => {
         refresh();
     }, [refresh]);
+
+    // A failure belongs to the directory it happened in: leaving it on screen
+    // while the user browses elsewhere would pin it to the wrong listing.
+    useEffect(() => {
+        setActionError(null);
+    }, [path]);
 
     function handleCdHere() {
         if (path === null) return;
@@ -235,7 +252,9 @@ export function SftpPanel({
 
     function handleUploadEvent(event: UploadEvent) {
         if (event.type === "file_error") {
-            setError(event.message);
+            const message = `${event.path}: ${event.message}`;
+            uploadErrorsRef.current.push(message);
+            setActionError(message);
         }
         const now = Date.now();
         setUploadProgress((prev) => {
@@ -300,6 +319,8 @@ export function SftpPanel({
     async function uploadPaths(localPaths: string[]) {
         if (path === null || localPaths.length === 0) return;
         uploadSampleRef.current = null;
+        uploadErrorsRef.current = [];
+        setActionError(null);
         setUploadProgress({
             currentPath: "",
             bytesDone: 0,
@@ -320,50 +341,64 @@ export function SftpPanel({
                     handleUploadEvent,
                 );
             } catch (err) {
-                setError(String(err));
+                // The command itself rejected, so no `file_error` event ever
+                // arrived for this path — nothing else would mention it.
+                uploadErrorsRef.current.push(`${fileName}: ${String(err)}`);
             }
         }
         setUploadProgress(null);
         refresh();
+        // After the refresh on purpose: `refresh()` only clears its own error, and
+        // this summary is the last word on the transfer either way.
+        const failures = uploadErrorsRef.current;
+        if (failures.length === 1) {
+            setActionError(`Upload failed — ${failures[0]}`);
+        } else if (failures.length > 1) {
+            setActionError(
+                `${failures.length} uploads failed — ${failures[0]} (and ${failures.length - 1} more)`,
+            );
+        }
     }
 
-    async function handleUpload() {
+    // Files and folders differ only in the dialog flag, so both toolbar buttons
+    // land here. The picker call sits inside the try because a dialog that fails
+    // to open rejects, and an unhandled rejection in a click handler is precisely
+    // the silent "nothing happened" this panel must never show.
+    async function pickAndUpload(directory: boolean) {
         if (path === null) return;
-        const selected = await openFileDialog({
-            multiple: true,
-            title: "Upload to " + path,
-        });
-        const localPaths = Array.isArray(selected)
-            ? selected
-            : selected
-              ? [selected]
-              : [];
-        await uploadPaths(localPaths);
-    }
-
-    async function handleUploadFolder() {
-        if (path === null) return;
-        const selected = await openFileDialog({
-            directory: true,
-            multiple: true,
-            title: "Upload folder to " + path,
-        });
-        const localPaths = Array.isArray(selected)
-            ? selected
-            : selected
-              ? [selected]
-              : [];
+        let localPaths: string[];
+        try {
+            const selected = await openFileDialog({
+                directory,
+                multiple: true,
+                title: (directory ? "Upload folder to " : "Upload to ") + path,
+            });
+            localPaths = Array.isArray(selected)
+                ? selected
+                : selected
+                  ? [selected]
+                  : [];
+        } catch (err) {
+            setActionError(`Could not open the file picker: ${String(err)}`);
+            return;
+        }
         await uploadPaths(localPaths);
     }
 
     async function handleDownload(entry: SftpEntry) {
         if (path === null) return;
-        const savePath = await saveFileDialog({ defaultPath: entry.name });
+        let savePath: string | null;
+        try {
+            savePath = await saveFileDialog({ defaultPath: entry.name });
+        } catch (err) {
+            setActionError(`Could not open the save dialog: ${String(err)}`);
+            return;
+        }
         if (!savePath) return;
         try {
             await sftpDownload(sessionId, joinPath(path, entry.name), savePath);
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -379,12 +414,12 @@ export function SftpPanel({
                         ...prev,
                         [remotePath]: event,
                     }));
-                    if (event.type === "error") setError(event.message);
+                    if (event.type === "error") setActionError(event.message);
                 },
             );
             await openPath(localPath);
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -404,7 +439,7 @@ export function SftpPanel({
                 return next;
             });
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         } finally {
             setSizingPaths((prev) => prev.filter((p) => !paths.includes(p)));
         }
@@ -418,7 +453,7 @@ export function SftpPanel({
             await sftpMkdir(sessionId, joinPath(path, name));
             refresh();
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -434,7 +469,7 @@ export function SftpPanel({
             );
             refresh();
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -448,7 +483,7 @@ export function SftpPanel({
             );
             refresh();
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -475,7 +510,7 @@ export function SftpPanel({
             await addFavoritePath(connection.id, label, path);
             onConnectionsChanged();
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -484,7 +519,7 @@ export function SftpPanel({
             await removeFavoritePath(connection.id, favoriteId);
             onConnectionsChanged();
         } catch (err) {
-            setError(String(err));
+            setActionError(String(err));
         }
     }
 
@@ -554,7 +589,7 @@ export function SftpPanel({
                     variant="ghost"
                     title="Upload files"
                     disabled={uploadProgress !== null}
-                    onClick={handleUpload}
+                    onClick={() => void pickAndUpload(false)}
                 >
                     <Upload />
                 </Button>
@@ -563,7 +598,7 @@ export function SftpPanel({
                     variant="ghost"
                     title="Upload folder"
                     disabled={uploadProgress !== null}
-                    onClick={handleUploadFolder}
+                    onClick={() => void pickAndUpload(true)}
                 >
                     <FolderUp />
                 </Button>
@@ -691,9 +726,25 @@ export function SftpPanel({
                 </div>
             )}
 
-            {error && (
+            {actionError && (
+                <div className="flex items-start gap-1 border-b border-border px-2 py-1 text-xs text-destructive">
+                    <span className="min-w-0 flex-1 break-words">
+                        {actionError}
+                    </span>
+                    <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        title="Dismiss"
+                        onClick={() => setActionError(null)}
+                    >
+                        <X />
+                    </Button>
+                </div>
+            )}
+
+            {listError && (
                 <p className="border-b border-border px-2 py-1 text-xs text-destructive">
-                    {error}
+                    {listError}
                 </p>
             )}
 

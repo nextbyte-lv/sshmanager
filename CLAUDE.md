@@ -87,7 +87,8 @@ npm run tauri dev         # dev server + app window, hot reload on frontend chan
                            # rebuild+relaunch on Rust changes
 npm run tauri build        # release build; installers land in
                            # src-tauri/target/release/bundle/
-npx tsc --noEmit           # frontend typecheck only
+./node_modules/.bin/tsc --noEmit  # frontend typecheck only (NOT `npx tsc` --
+                           # npx re-resolves and rewrites package.json; see tasks/lessons.md)
 npm run build               # frontend typecheck + production Vite build (no Tauri)
 cd src-tauri && cargo check  # backend compile check only (fast, no bundling)
 ```

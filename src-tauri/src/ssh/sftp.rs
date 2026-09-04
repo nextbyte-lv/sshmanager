@@ -51,6 +51,20 @@ pub enum UploadEvent {
     Done { uploaded: u32, skipped: u32, failed: u32 },
 }
 
+// The one operation the server refused, handed back to the caller so it can be
+// retried under sudo. SFTP has no privilege escalation of its own — the subsystem
+// runs as the login user, so a root-owned target cannot be written no matter what
+// the request says — and this module has no exec channel, no credentials and no
+// business growing either. `commands::sftp` supplies the retry.
+//
+// Owned rather than borrowed so the future the caller's closure returns is one
+// concrete type; both allocations are noise next to a file transfer.
+#[derive(Debug, Clone)]
+pub enum Elevate {
+    MakeDir { remote: String },
+    PutFile { local: PathBuf, remote: String },
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FileSyncEvent {
@@ -179,12 +193,17 @@ pub(crate) async fn upload_file(
 
 // Uploads a local file or directory tree to the remote path, recursing into
 // subdirectories and skipping files that are already identical on the remote.
-pub async fn upload_path(
+pub async fn upload_path<F, Fut>(
     sftp: &SftpSession,
     local_root: &Path,
     remote_root: &str,
     on_event: &impl Fn(UploadEvent),
-) -> Result<(), SshError> {
+    elevate: &F,
+) -> Result<(), SshError>
+where
+    F: Fn(Elevate) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
     let mut stack: Vec<(PathBuf, String)> = vec![(local_root.to_path_buf(), remote_root.to_string())];
     let mut uploaded = 0u32;
     let mut skipped = 0u32;
@@ -201,16 +220,28 @@ pub async fn upload_path(
         };
 
         if meta.is_dir() {
-            if sftp.create_dir(&remote).await.is_err() {
+            if let Err(source) = sftp.create_dir(&remote).await {
+                let refused = SshError::RemoteWrite { path: remote.clone(), source };
                 match sftp.metadata(&remote).await {
+                    // Already there and already a directory: creating it was
+                    // never the point, so the failure means nothing.
                     Ok(remote_meta) if remote_meta.is_dir() => {}
                     _ => {
-                        failed += 1;
-                        on_event(UploadEvent::FileError {
-                            path: remote,
-                            message: "failed to create remote directory".to_string(),
-                        });
-                        continue;
+                        // A folder upload landing in a parent the login user
+                        // cannot write is the common failure here, and it is
+                        // exactly what sudo exists for. Same rule as the write,
+                        // delete and chmod paths: escalate only a refusal for
+                        // lack of permission, never a generic failure.
+                        let outcome = if refused.is_permission_denied() {
+                            elevate(Elevate::MakeDir { remote: remote.clone() }).await
+                        } else {
+                            Err(refused.to_string())
+                        };
+                        if let Err(message) = outcome {
+                            failed += 1;
+                            on_event(UploadEvent::FileError { path: remote, message });
+                            continue;
+                        }
                     }
                 }
             }
@@ -231,6 +262,24 @@ pub async fn upload_path(
             match upload_file(sftp, &local, &remote, &meta, on_event).await {
                 Ok(true) => uploaded += 1,
                 Ok(false) => skipped += 1,
+                // A file inside a root-owned directory — including one this walk
+                // just had to create under sudo — is refused the same way its
+                // parent was, so it takes the same retry.
+                Err(e) if e.is_permission_denied() => {
+                    match elevate(Elevate::PutFile { local, remote: remote.clone() }).await {
+                        // `Started` was already sent before the refusal and the
+                        // retry reports its own progress, so all that is missing
+                        // is the file's ending.
+                        Ok(()) => {
+                            uploaded += 1;
+                            on_event(UploadEvent::FileDone { path: remote });
+                        }
+                        Err(message) => {
+                            failed += 1;
+                            on_event(UploadEvent::FileError { path: remote, message });
+                        }
+                    }
+                }
                 Err(e) => {
                     failed += 1;
                     on_event(UploadEvent::FileError { path: remote, message: e.to_string() });

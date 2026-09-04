@@ -238,3 +238,47 @@ subdirectory) renders with a `~` and says so on hover rather than silently
 under-reporting. No sudo escalation here on purpose: unlike a write or a chmod,
 `du` failing on part of a tree still returns a usable number, and `sudo du -sb`
 over an arbitrary path is a lot of privilege for a display nicety.
+
+## Upload: visible failures, and sudo escalation
+
+An upload of a folder into a root-owned parent reported nothing at all — no
+progress, no error, no notification. Two separate silences, then one missing
+feature behind them.
+
+- [x] `SftpPanel.tsx`: split the panel's single `error` state into `listError`
+      (owned and cleared by `refresh()`) and `actionError` (owned by the user's
+      last action). `uploadPaths()` ends with `refresh()`, whose first act was
+      `setError(null)` — it wiped the very message the upload had just set
+- [x] `SftpPanel.tsx`: upload failures are collected (channel `file_error`
+      events *and* a rejected `sftp_upload`) and reported as a summary when the
+      transfer ends, with a count when there is more than one
+- [x] `SftpPanel.tsx`: `openFileDialog`/`saveFileDialog` calls moved inside a
+      `try` — awaited bare in a click handler, a rejecting picker was an
+      unhandled rejection, i.e. a button that does nothing
+- [x] `ssh/sftp.rs`: `Elevate` — the walk hands the one operation the server
+      refused back to its caller instead of growing an exec channel and
+      credentials of its own; `upload_path` takes the retry as a callback
+- [x] `commands/sftp.rs`: `elevated_mkdir` (`sudo mkdir -p`) and `elevated_put`
+      (stage to `/tmp` over SFTP, `sudo cp` into place, always clean up the
+      staging file), wired into `sftp_upload`
+- [x] `ssh/sftp.rs`: a refused `create_dir` now carries the server's own reason
+      instead of a flat "failed to create remote directory"
+
+### Review
+
+Escalation follows the rule the write, delete and chmod paths already set: retry
+only a `PermissionDenied` refusal, never a generic failure, so nothing gets a
+second run as root on the strength of an unrelated error. Uploads escalate
+per file rather than as one `sudo cp -r` of a staged tree — more round trips,
+but the progress events and the size+mtime skip check stay per file, and a tree
+where only one directory is root-owned doesn't get wholesale root treatment.
+
+Known cost, deliberate: `cp` (not `cp -p`) keeps an existing target's inode,
+owner and mode, but leaves the mtime as *now*, so an escalated file is re-sent
+on the next upload instead of being skipped. Preserving it would mean either
+handing the target's ownership to the login user or a GNU-only flag.
+
+- [ ] Exercise live: upload a file and a folder into a root-owned directory
+      (expect success via sudo); the same with a key-only connection and no
+      password-less sudo (expect "…and sudo could not either: sudo: a password
+      is required" in the panel); cancel a picker (expect no message at all)

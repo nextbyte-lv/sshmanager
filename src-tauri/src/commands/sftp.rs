@@ -105,11 +105,25 @@ pub async fn sftp_upload(
     on_event: Channel<UploadEvent>,
 ) -> Result<(), String> {
     let session = get_sftp(&state, &session_id).await?;
-    sftp::upload_path(&session, Path::new(&local_path), &remote_path, &|event| {
+    let emit = |event: UploadEvent| {
         let _ = on_event.send(event);
-    })
-    .await
-    .map_err(|e| e.to_string())
+    };
+    // Everything the walk cannot do as the login user comes back through here.
+    // Captured by reference and by `move` so the closure hands the async block
+    // nothing but copies of references — the alternative is a borrow puzzle for
+    // no gain, since all three outlive the upload.
+    let (state_ref, sid, emit_ref) = (state.inner(), session_id.as_str(), &emit);
+    let elevate = move |what: sftp::Elevate| async move {
+        match what {
+            sftp::Elevate::MakeDir { remote } => elevated_mkdir(state_ref, sid, &remote).await,
+            sftp::Elevate::PutFile { local, remote } => {
+                elevated_put(state_ref, sid, &local, &remote, emit_ref).await
+            }
+        }
+    };
+    sftp::upload_path(&session, Path::new(&local_path), &remote_path, &emit, &elevate)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -323,6 +337,18 @@ fn chmod_args(mode: u32, recursive: bool, path: &str) -> String {
     format!("chmod {}{:04o} -- {}", if recursive { "-R " } else { "" }, mode, shell_quote(path))
 }
 
+// `mkdir -p -- PATH` and `cp -- SOURCE DEST`. The `--` is the point of both: a
+// remote path is user data and one starting with `-` would otherwise be read as a
+// flag. `-p` makes the mkdir idempotent, so a directory another entry of the same
+// upload already created is not an error.
+fn mkdir_args(path: &str) -> String {
+    format!("mkdir -p -- {}", shell_quote(path))
+}
+
+fn cp_args(source: &str, dest: &str) -> String {
+    format!("cp -- {} {}", shell_quote(source), shell_quote(dest))
+}
+
 // `du -s<unit> -- PATH...`: `-s` collapses each argument to a single total line,
 // and the unit is `b` (apparent bytes, GNU) or `k` (1024-byte blocks, POSIX).
 //
@@ -386,7 +412,7 @@ fn last_error_line(stderr: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chmod_args, du_command, names_path, parse_du, shell_quote};
+    use super::{chmod_args, cp_args, du_command, mkdir_args, names_path, parse_du, shell_quote};
 
     // The remote path comes from the server's own directory listing, so it can hold
     // anything a filename may hold — it must never be able to end the quoted string
@@ -439,6 +465,17 @@ mod tests {
         let sizes = parse_du(stdout, "", 1024, &paths);
         assert_eq!(sizes.len(), 1);
         assert_eq!(sizes[0].bytes, 12 * 1024);
+    }
+
+    // Both escalated upload commands must keep `--` in front of the paths: a
+    // remote entry named `-rf` is a legal filename and an illegal flag.
+    #[test]
+    fn guards_the_escalated_upload_paths_against_flags() {
+        assert_eq!(mkdir_args("/opt/app/-p"), "mkdir -p -- '/opt/app/-p'");
+        assert_eq!(
+            cp_args("/tmp/.sshmanager-1", "/etc/app/-rf conf"),
+            "cp -- '/tmp/.sshmanager-1' '/etc/app/-rf conf'"
+        );
     }
 
     // A total summed over a tree `du` could not fully read is a lower bound, and
@@ -517,9 +554,7 @@ async fn elevated_write(
         .await
         .map_err(|e| format!("could not stage the file for a privileged write: {e}"))?;
 
-    let copied =
-        run_with_sudo(state, session_id, &format!("cp -- {} {}", shell_quote(&staged), shell_quote(remote_path)))
-            .await;
+    let copied = run_with_sudo(state, session_id, &cp_args(&staged, remote_path)).await;
 
     // The staging file belongs to the login user, so clearing it needs no privileges
     // and must happen whether or not the copy went through.
@@ -528,6 +563,69 @@ async fn elevated_write(
     }
 
     copied.map_err(|reason| format!("cannot write {remote_path}, and sudo could not either: {reason}"))
+}
+
+// A directory the login user cannot create because it cannot write the parent —
+// the usual reason a folder upload stops at its first entry. `-p` keeps it
+// idempotent, matching the plain SFTP branch's "already a directory is fine" rule.
+async fn elevated_mkdir(state: &AppState, session_id: &str, remote: &str) -> Result<(), String> {
+    run_with_sudo(state, session_id, &mkdir_args(remote))
+        .await
+        .map_err(|reason| format!("cannot create {remote} on the server, and sudo could not either: {reason}"))
+}
+
+// The upload's counterpart to `elevated_write`: the same staging trick, but it
+// reports progress so the panel's bar keeps moving through a large privileged
+// file, and it is reached for a file that does not exist yet as often as for one
+// that does.
+//
+// Plain `cp` for the same reason as the write path — onto an existing target it
+// keeps that file's inode, owner and mode, where `mv` would replace it with a
+// root-owned 0600 file. The cost is the mtime, which ends up as *now* instead of
+// the local file's: an escalated file is therefore re-sent on the next upload
+// rather than skipped by the size+mtime check. Copying the timestamp needs either
+// `cp -p` (which would also hand the target's ownership to the login user) or a
+// GNU-only `--preserve=timestamps`, and neither is worth it to save one transfer.
+async fn elevated_put(
+    state: &AppState,
+    session_id: &str,
+    local_path: &Path,
+    remote_path: &str,
+    on_event: &impl Fn(UploadEvent),
+) -> Result<(), String> {
+    let session = get_sftp(state, session_id).await?;
+    let staged = format!("/tmp/.sshmanager-{}", Uuid::new_v4());
+    let total_bytes = tokio::fs::metadata(local_path).await.map_err(|e| e.to_string())?.len();
+
+    // Progress is re-labelled with the destination: the staging path is an
+    // implementation detail of the escalation, and the panel is showing the
+    // upload the user actually asked for.
+    let staged_result = sftp::copy_to_remote(&session, local_path, &staged, total_bytes, &|event| {
+        on_event(match event {
+            UploadEvent::Progress { bytes_done, total_bytes, .. } => {
+                UploadEvent::Progress { path: remote_path.to_string(), bytes_done, total_bytes }
+            }
+            other => other,
+        })
+    })
+    .await;
+
+    let outcome = match staged_result {
+        Err(e) => Err(format!("could not stage {remote_path} for a privileged upload: {e}")),
+        Ok(()) => run_with_sudo(state, session_id, &cp_args(&staged, remote_path))
+            .await
+            .map_err(|reason| {
+                format!("cannot write {remote_path} on the server, and sudo could not either: {reason}")
+            }),
+    };
+
+    // The staging file belongs to the login user, so clearing it needs no
+    // privileges and must happen whether or not the copy went through.
+    if let Ok((ssh, _)) = session_ssh(state, session_id) {
+        let _ = ssh::exec::run(&ssh, &format!("rm -f -- {}", shell_quote(&staged)), None).await;
+    }
+
+    outcome
 }
 
 // Same reasoning as the privileged write: deleting an entry needs write permission

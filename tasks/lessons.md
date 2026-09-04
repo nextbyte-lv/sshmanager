@@ -240,6 +240,35 @@ prettier applied its own defaults and reformatted whole files — 1400 changed
 lines in `SftpPanel.tsx` alone — burying the actual change.
 
 Root cause: `npx` on a missing package is an install, not a sandboxed run, and
-npm treats any install as licence to re-resolve the manifest. There is no
+npm treats any install as licence to re-resolve the manifest.
+
+**This happens even when the package *is* a devDependency and already
+installed.** `npx tsc --noEmit` — the typecheck command this project's own
+CLAUDE.md used to document — rewrote `package.json` (bumped carets on
+`@base-ui/react`, `lucide-react`, `shadcn`, `vite`, the `@types/*`) and ~700
+lines of `package-lock.json`, with `typescript@7.0.2` already present under
+`node_modules/.bin/tsc` and satisfying the `~7.0.2` range. Run project binaries
+directly instead: `./node_modules/.bin/tsc --noEmit`. If a manifest rewrite has
+already happened, `git checkout -- package.json package-lock.json` then `npm ci`
+— the checkout alone leaves the installed tree out of step with the lockfile. There is no
 formatter configured for this project; match the surrounding file's style by hand
 instead (4-space indent under `src/components/`, 2-space under `src/lib/`).
+
+## One error state shared by a refresh and by user actions loses the message
+
+The SFTP panel had a single `error` slot. `refresh()` opened with
+`setError(null)`, and `uploadPaths()` ended with `refresh()` — so every upload
+error the panel had just recorded (the `file_error` events from the channel, and
+the rejection of `sftp_upload` itself) was cleared microseconds after being set.
+A failed upload was indistinguishable from a click that did nothing: no
+progress, no error, nothing. The picker calls made it worse — `openFileDialog`
+and `saveFileDialog` were awaited outside any `try`, so a dialog that rejects
+became an unhandled rejection in a click handler, which is silent by
+construction.
+
+**Rule:** an error slot belongs to exactly one producer. State cleared by a
+reload (`listError`) and state describing what the user just asked for
+(`actionError`) are two different lifetimes; sharing one variable means whichever
+runs last wins, and the reload always runs last. And every `await` in a click
+handler needs a `catch` that reaches the screen — in a desktop webview there is
+no console anyone is watching.
