@@ -1,0 +1,280 @@
+@@uname
+Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
+@@conf
+clk_tck 100
+pagesize 4096
+now 1788612483
+@@stat
+cpu  11568 0 5473 3309542 693 0 2222 0 0 0
+cpu0 528 0 250 137717 21 0 1053 0 0 0
+cpu1 383 0 213 137953 89 0 448 0 0 0
+cpu2 503 0 244 137845 21 0 150 0 0 0
+cpu3 385 0 209 138042 23 0 150 0 0 0
+cpu4 548 0 240 137785 26 0 73 0 0 0
+cpu5 354 0 167 138097 25 0 71 0 0 0
+cpu6 575 0 226 137799 29 0 29 0 0 0
+cpu7 498 0 168 137995 17 0 41 0 0 0
+cpu8 532 0 248 137788 38 0 18 0 0 0
+cpu9 370 0 155 138104 24 0 28 0 0 0
+cpu10 476 0 253 137815 45 0 14 0 0 0
+cpu11 458 0 172 138025 7 0 15 0 0 0
+cpu12 506 0 258 137811 65 0 11 0 0 0
+cpu13 388 0 179 138060 52 0 12 0 0 0
+cpu14 547 0 286 137760 25 0 14 0 0 0
+cpu15 448 0 199 137998 13 0 10 0 0 0
+cpu16 562 0 239 137819 16 0 14 0 0 0
+cpu17 432 0 176 138065 10 0 9 0 0 0
+cpu18 516 0 266 137803 15 0 12 0 0 0
+cpu19 538 0 188 137906 49 0 7 0 0 0
+cpu20 506 0 283 137812 16 0 9 0 0 0
+cpu21 454 0 176 138011 15 0 7 0 0 0
+cpu22 478 0 255 137847 31 0 8 0 0 0
+cpu23 572 0 416 137677 10 0 9 0 0 0
+intr 4436450 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2143 1 2 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 6746004
+btime 1788611096
+processes 3035
+procs_running 5
+procs_blocked 0
+softirq 1209189 0 68890 76 170289 1438 0 188756 582625 0 197115
+@@uptime
+1387.37 33095.42
+@@netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:  164572     876    0    0    0     0          0         0   164572     876    0    0    0     0       0          0
+  eth0:   55437     340    0    0    0     0          0       214    14393     145    0    0    0     0       0          0
+@@diskstats
+   1       0 ram0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       1 ram1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       2 ram2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       3 ram3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       4 ram4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       5 ram5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       6 ram6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       7 ram7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       8 ram8 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1       9 ram9 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      10 ram10 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      11 ram11 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      12 ram12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      13 ram13 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      14 ram14 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   1      15 ram15 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       0 loop0 143 0 64876 72 0 0 0 0 0 28 72 0 0 0 0 0 0
+   7       1 loop1 1438 1 871034 1158 0 0 0 0 0 388 1158 0 0 0 0 0 0
+   7       2 loop2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       3 loop3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       4 loop4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       5 loop5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       6 loop6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   7       7 loop7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+   8      16 sdb 146 69 17874 31 0 0 0 0 0 20 31 0 0 0 0 0 0
+   8       0 sda 717 438 317690 150 0 0 0 0 0 120 150 0 0 0 0 0 0
+   8      32 sdc 94 0 3936 4 2 0 8 11 0 16 22 0 0 0 0 1 7
+   8      48 sdd 344 254 120116 123 144 27 334 98 0 76 256 2 0 14 0 16 33
+   8      64 sde 79981 7691 2183658 26219 6327 20669 670992 20042 0 285016 48550 8606 776 1990656304 229 866 2057
+   8      80 sdf 1618 511 281178 485 742 347 26648 1378 0 548 2047 32 3 87296 2 78 181
+@@procs
+1 S 0 12 16 1 305 3393 systemd
+163 S 1 0 0 1 446 673 cron
+165 S 1 2 1 1 446 968 dbus-daemon
+168 S 1 2 1 1 459 2239 systemd-logind
+183 S 1 0 0 1 460 688 agetty
+198 S 2 0 0 1 486 192 SessionLeader
+199 S 198 0 0 1 486 240 Relay(200)
+2 S 1 0 0 2 308 435 init-systemd(De
+200 S 199 0 0 1 486 385 sh
+202 S 2 0 0 1 486 885 login
+213 S 1 5 0 1 492 2971 systemd
+215 S 213 0 0 1 493 875 (sd-pam)
+228 S 202 0 0 1 502 999 bash
+254 S 2 0 0 1 532 978 login
+662 R 661 89 112 1 138535 424 yes
+@@ps
+      1 root                             /sbin/init
+      2 root                             /init
+    163 root                             /usr/sbin/cron -f
+    165 messagebus                       /usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+    168 root                             /usr/lib/systemd/systemd-logind
+    183 root                             /sbin/agetty -o -- \u --noreset --noclear - linux
+    198 root                             /init
+    199 root                             /init
+    200 arccuks                          sh
+    202 root                             login -- arccuks
+    213 arccuks                          /usr/lib/systemd/systemd --user
+    215 arccuks                          (sd-pam)
+    228 arccuks                          -bash
+    254 root                             login -- root
+    662 arccuks                          yes
+@@meminfo
+MemTotal:       32755368 kB
+MemFree:        30965164 kB
+MemAvailable:   31280636 kB
+Buffers:            3184 kB
+Cached:           545432 kB
+SwapCached:            0 kB
+Active:            93472 kB
+Inactive:         940296 kB
+Active(anon):       2708 kB
+Inactive(anon):   487052 kB
+Active(file):      90764 kB
+Inactive(file):   453244 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:       8388608 kB
+SwapFree:        8388608 kB
+Dirty:                 0 kB
+Writeback:             0 kB
+AnonPages:        485616 kB
+Mapped:           396204 kB
+Shmem:              4684 kB
+KReclaimable:     144508 kB
+Slab:             263688 kB
+SReclaimable:     144508 kB
+SUnreclaim:       119180 kB
+KernelStack:       10384 kB
+PageTables:        10212 kB
+SecPageTables:         0 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:    24766292 kB
+Committed_AS:    3329460 kB
+VmallocTotal:   34359738367 kB
+VmallocUsed:       46236 kB
+VmallocChunk:          0 kB
+Percpu:            12384 kB
+HardwareCorrupted:     0 kB
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+FileHugePages:         0 kB
+FilePmdMapped:         0 kB
+Unaccepted:            0 kB
+Balloon:               0 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:       2048 kB
+Hugetlb:               0 kB
+DirectMap4k:       74752 kB
+DirectMap2M:    11350016 kB
+DirectMap1G:    31457280 kB
+@@loadavg
+0.09 0.15 0.18 5/627 705
+@@cpuinfo
+13th Gen Intel(R) Core(TM) i7-13700KF
+
+@@pressure
+cpu avg10=0.00
+io avg10=0.00
+memory avg10=0.00
+@@df
+Filesystem     1024-blocks      Used  Available Capacity Mounted on
+none              16377684         0   16377684       0% /usr/lib/modules/6.18.33.2-microsoft-standard-WSL2
+none              16377684         4   16377680       1% /mnt/wsl
+none              16377684       692   16376992       1% /mnt/wsl/docker-desktop/shared-sockets/host-services
+/dev/sdd            139283     72473      55987      57% /mnt/wsl/docker-desktop/docker-desktop-user-distro
+/dev/loop0          821044    821044          0     100% /mnt/wsl/docker-desktop/cli-tools
+drivers          975707132 387255920  588451212      40% /usr/lib/wsl/drivers
+/dev/sdf        1055762868   1274540 1000784856       1% /
+none              16377684        36   16377648       1% /mnt/wslg
+none              16377684         0   16377684       0% /usr/lib/wsl/lib
+rootfs            16371924      2772   16369152       1% /init
+none              16371924         0   16371924       0% /dev
+none              16377684       532   16377152       1% /run
+none              16377684         0   16377684       0% /run/lock
+none              16377684         0   16377684       0% /run/shm
+none              16377684        80   16377604       1% /mnt/wslg/versions.txt
+none              16377684        80   16377604       1% /mnt/wslg/doc
+tmpfs             16377684        36   16377648       1% /tmp
+tmpfs                 1024         0       1024       0% /run/credentials/systemd-journald.service
+tmpfs                 1024         0       1024       0% /run/credentials/getty@tty1.service
+tmpfs              3275536         8    3275528       1% /run/user/1000
+tmpfs              3275536         8    3275528       1% /run/user/0
+@@mounts
+/usr/lib/modules/6.18.33.2-microsoft-standard-WSL2 overlay rw,nosuid,nodev,noatime,lowerdir=/modules,upperdir=/lib/modules/6.18.33.2-microsoft-standard-WSL2/rw/upper,workdir=/lib/modules/6.18.33.2-microsoft-standard-WSL2/rw/work,uuid=on
+/mnt/wsl tmpfs rw,relatime
+/mnt/wsl/docker-desktop/shared-sockets/guest-services tmpfs rw,nosuid,nodev,mode=755
+/mnt/wsl/docker-desktop/shared-sockets/host-services tmpfs rw,nosuid,nodev,mode=755
+/mnt/wsl/docker-desktop/docker-desktop-user-distro ext4 rw,relatime,discard,errors=remount-ro,data=ordered
+/mnt/wsl/docker-desktop/cli-tools iso9660 ro,relatime,nojoliet,check=s,map=n,blocksize=2048,iocharset=utf8
+/usr/lib/wsl/drivers 9p ro,nosuid,nodev,noatime,aname=drivers;fmask=222;dmask=222,cache=0x5,access=client,msize=65536,trans=fd,rfd=8,wfd=8
+/ ext4 rw,relatime,discard,errors=remount-ro,data=ordered
+/mnt/wslg tmpfs rw,relatime
+/mnt/wslg/distro ext4 ro,relatime,discard,errors=remount-ro,data=ordered
+/usr/lib/wsl/lib overlay rw,nosuid,nodev,noatime,lowerdir=/gpu_lib_packaged:/gpu_lib_inbox,upperdir=/gpu_lib/rw/upper,workdir=/gpu_lib/rw/work,uuid=on
+/init rootfs ro,size=16371924k,nr_inodes=4092981
+/dev devtmpfs rw,nosuid,relatime,size=16371924k,nr_inodes=4092981,mode=755
+/sys sysfs rw,nosuid,nodev,noexec,noatime
+/proc proc rw,nosuid,nodev,noexec,noatime
+/dev/pts devpts rw,nosuid,noexec,noatime,gid=5,mode=620,ptmxmode=000
+/run tmpfs rw,nosuid,nodev,mode=755
+/run/lock tmpfs rw,nosuid,nodev,noexec,noatime
+/run/shm tmpfs rw,nosuid,nodev,noatime
+/dev/shm tmpfs rw,nosuid,nodev,noatime
+/run/user tmpfs rw,nosuid,nodev,noexec,noatime,mode=755
+/proc/sys/fs/binfmt_misc binfmt_misc rw,relatime
+/sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate
+/mnt/wslg/versions.txt overlay rw,relatime,lowerdir=/systemvhd,upperdir=/system/rw/upper,workdir=/system/rw/work,uuid=on
+/mnt/wslg/doc overlay rw,relatime,lowerdir=/systemvhd,upperdir=/system/rw/upper,workdir=/system/rw/work,uuid=on
+/tmp/.X11-unix tmpfs ro,relatime
+/mnt/c 9p rw,noatime,aname=drvfs;path=C:\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6
+/mnt/d 9p rw,noatime,aname=drvfs;path=D:\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6
+/run/user tmpfs rw,relatime
+/tmp tmpfs rw,nosuid,nodev,nr_inodes=1048576
+/sys/kernel/debug debugfs rw,nosuid,nodev,noexec,relatime
+/dev/mqueue mqueue rw,nosuid,nodev,noexec,relatime
+/sys/kernel/tracing tracefs rw,nosuid,nodev,noexec,relatime
+/dev/hugepages hugetlbfs rw,nosuid,nodev,relatime,pagesize=2M
+/run/credentials/systemd-journald.service tmpfs ro,nosuid,nodev,noexec,relatime,nosymfollow,size=1024k,nr_inodes=1024,mode=700,noswap
+/sys/fs/fuse/connections fusectl rw,nosuid,nodev,noexec,relatime
+/sys/kernel/config configfs rw,nosuid,nodev,noexec,relatime
+/tmp/.X11-unix tmpfs ro,relatime
+/run/credentials/getty@tty1.service tmpfs ro,nosuid,nodev,noexec,relatime,nosymfollow,size=1024k,nr_inodes=1024,mode=700,noswap
+/run/user/1000 tmpfs rw,nosuid,nodev,relatime,size=3275536k,nr_inodes=818884,mode=700,uid=1000,gid=1000
+/mnt/wslg/run/user/1000 tmpfs rw,nosuid,nodev,relatime,size=3275536k,nr_inodes=818884,mode=700,uid=1000,gid=1000
+/run/user/0 tmpfs rw,nosuid,nodev,relatime,size=3275536k,nr_inodes=818884,mode=700
+/mnt/wslg/run/user/0 tmpfs rw,nosuid,nodev,relatime,size=3275536k,nr_inodes=818884,mode=700
+/mnt/wsl/docker-desktop-bind-mounts/Debian/docker.sock tmpfs rw,nosuid,nodev,mode=755
+/Docker/host 9p rw,noatime,aname=drvfs;path=C:\Program
+@@cgroup
+mem_max 
+cpu_max 
+mem_limit_v1 
+cpu_quota_v1 
+cpu_period_v1 
+@@blockdevs
+loop0
+loop1
+loop2
+loop3
+loop4
+loop5
+loop6
+loop7
+ram0
+ram1
+ram10
+ram11
+ram12
+ram13
+ram14
+ram15
+ram2
+ram3
+ram4
+ram5
+ram6
+ram7
+ram8
+ram9
+sda
+sdb
+sdc
+sdd
+sde
+sdf
+@@end

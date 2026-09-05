@@ -10,10 +10,18 @@ auto-update, and no multi-user/cloud features are planned.
 
 Built so far: connection list + editor (password or private-key auth),
 tabs each holding their own resizable split-pane grid of live terminals,
-drag-to-rearrange panes, and a per-pane SFTP browser panel that shares the
-same SSH connection as its terminal (no second login). Packaged into a
-standalone Windows installer (see below). Still ahead: auto-reconnect with
-backoff. See `tasks/todo.md` for the full phase-by-phase build log and
+drag-to-rearrange panes, a per-pane SFTP browser panel that shares the
+same SSH connection as its terminal (no second login), and a per-pane remote
+task manager docked below the terminal on that same connection -- CPU (model,
+per-core load, steal, iowait), RAM/swap, filesystem usage, network and disk
+throughput, listening ports, and a sortable process list with true
+instantaneous CPU% that can signal a process (escalating through sudo when it
+is not yours). Rows that move or appear flash so a refresh is readable at a
+glance. The monitor reads Linux `/proc`; on any other system it says so rather
+than showing numbers that would be quietly wrong. Packaged into a standalone
+Windows installer (see below). Still ahead: auto-reconnect with backoff.
+
+See `tasks/todo.md` for the full phase-by-phase build log and
 `tasks/lessons.md` for gotchas already hit and fixed — read that before
 touching `russh`, `react-mosaic-component`, or Tauri's window/drag-and-drop
 config.

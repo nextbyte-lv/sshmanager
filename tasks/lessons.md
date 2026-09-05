@@ -272,3 +272,209 @@ reload (`listError`) and state describing what the user just asked for
 runs last wins, and the reload always runs last. And every `await` in a click
 handler needs a `catch` that reaches the screen — in a desktop webview there is
 no console anyone is watching.
+
+## `sh -c '<script>'` is not actually safe from the login shell — send it on stdin
+
+The remote monitor needs a multi-line POSIX script with an awk program in it. The
+lesson above says `exec::run` goes through the account's *login* shell, so shell
+operators are unsafe there; the obvious dodge is to hand the whole script to
+`sh -c` as one single-quoted word, on the theory that a quoted word is inert
+everywhere. It isn't — in exactly the two shells that lesson names. **fish**
+honours `\'` and `\\` *inside* single quotes, and **csh/tcsh** performs history
+expansion on `!` inside them. An awk program parsing `/proc` is full of both
+(`\t`, `[0-9]`, `!seen[x]`), so the "safe" form silently imposes "no backslashes,
+no `!`, no newlines" on the script.
+
+**Rule:** send the script as channel **stdin** to a bare `sh`
+(`exec::run(&ssh, "sh", Some(script))`) — the `ssh host sh < script.sh` idiom. The
+login shell then only ever sees the two-character word `sh`, and the script bytes
+are parsed by a real POSIX shell, so they may contain anything. `ssh/exec.rs`
+already writes stdin then EOFs before collecting the exit status, so this needs no
+plumbing. Two consequences worth knowing: the script can live as a reviewable
+`.sh` file (`include_str!`) instead of an escaped Rust literal, and stdin is now
+spent, so that call can never also carry a sudo password — fine for sampling,
+which must not use sudo anyway.
+
+## `awk file1 file2 …` over `/proc/[0-9]*/stat` truncates the list silently
+
+Reading every process means globbing hundreds of `/proc/<pid>/stat` files, and a
+pid exiting between glob expansion and the read is normal, not exceptional. If
+those files are passed to `awk` as *operands*, the first failed open is **fatal**
+in gawk, mawk and busybox awk: awk abandons the remaining operands and exits 2.
+Stdout still looks perfectly well-formed — it is just missing an arbitrary tail of
+the process list, and on a busy host that happens most polls.
+
+**Rule:** `cat /proc/[0-9]*/stat 2>/dev/null | awk '…'`, never
+`awk '…' /proc/[0-9]*/stat`. `cat` reports the missing file on stderr and carries
+on to the next operand. Related, same collector: don't gate the sample on the exit
+status either — `cat` exits nonzero whenever any pid vanished, i.e. almost always.
+Emit an `@@end` sentinel as the script's last line and treat *that* as the
+completeness check; it also catches a `ForceCommand`/`nologin` shell having run
+something else entirely, which an exit status cannot.
+
+## `/proc/<pid>/stat` field 2 defeats every naive field index
+
+`comm` is parenthesised and may contain spaces **and** parentheses
+(`(evil ) name)`), so `$14`-style indexing shifts by however many spaces are in
+the name. Indexing backwards from `NF` is wrong too — the field count grew across
+kernel versions (44 → 52). Split on the **last** `)` (`match($0, /\)[^)]*$/)`) and
+index the remainder: state 1, ppid 2, utime 12, stime 13, num_threads 18,
+starttime 20, rss 22. The failure is invisible: `nice` (19) and `num_threads` (20)
+are both plausible small integers.
+
+Other members of the same family, every one of which produces a *plausible*
+number rather than an error:
+- **RSS in `stat` is in pages, not kB** — scale by `getconf PAGESIZE`. It is 65536
+  on 64K-page arm64 and ppc64le, so a hardcoded 4096 is a silent 16x error.
+- **`/proc/net/dev` has no space after the `:`** once a counter is wide enough
+  (`eth0:1234567890123`), so whitespace splitting shifts every field. Split on the
+  first `:`.
+- **`user` already includes `guest`** in `/proc/stat` (and `nice` includes
+  `guest_nice`), so summing all ten fields inflates the denominator on a KVM host.
+- **`df`'s own `Use%` is `used/(used+avail)`**, not `used/size` — the root-reserved
+  5% is in neither, so the obvious calculation disagrees with `df -h` on every
+  ext4 volume.
+- **`ps -o user=` truncates to 8 characters** with a `+` suffix; use `user:32=`.
+  And `argv` may contain a newline, which shifts every following row and pairs one
+  process with another's command line — accept a `ps` line as a row only if it
+  starts with a pid, and append anything else to the previous row.
+- **Per-core `/proc/stat` lines cover only *online* CPUs**, so key them by their
+  `cpuN` label; by array position, one core going offline shifts every later core.
+- **`df` and `/proc/mounts` are mostly noise**: a WSL Debian mounts twenty tmpfs
+  filesystems and a stock Ubuntu has a squashfs per snap, all 100% full by
+  construction. Filter by fs type or the real volumes never make it onto the card.
+
+**Rule:** for anything derived from `/proc`, write the parser as a pure function
+and test it against two *captured real samples*, not against the UI. Every trap
+above is caught by a fixture in seconds and by no amount of looking at a screen.
+`src-tauri/src/ssh/testdata/` holds a consecutive pair taken from a live host with
+a known `yes > /dev/null` running, which pins the per-process CPU maths to a real,
+verifiable 100% of one core.
+
+## Counter deltas need the remote clock, `checked_sub`, and a `(pid, starttime)` key
+
+Three separate ways a rate goes quietly wrong:
+- Measuring elapsed time with the *local* poll interval is off by 10–30% once SSH
+  latency and scheduler jitter are involved, and that error scales every
+  byte-per-second figure. Use the delta of the remote `/proc/uptime` instead.
+- A counter can go **backwards** — a reboot, a 32-bit wrap on a busy link, an
+  interface bounce, or our own reconnect. `checked_sub` and discard the whole
+  sample; clamping to zero reports a saturated link as "0 B/s", which reads as
+  nothing happening.
+- Keying the previous sample by `pid` alone diffs a *new* process against a dead
+  one's counters when the pid is recycled, giving an absurd spike. Key by
+  `(pid, starttime)`, as htop does. The same `starttime` is what a kill should
+  re-check before signalling, or pid reuse between rendering a row and clicking it
+  kills something unrelated.
+
+Cache invalidation belongs with this: a per-session cache of a previous sample has
+to be dropped everywhere `state.sftp` is (`close_session`, and **both** reconnect
+branches in `ssh/pty.rs`), or the first sample after a host reboot subtracts large
+old counters from small new ones.
+
+Concurrency belongs with it too. Two overlapping polls sharing one "previous
+sample" slot each end up diffing against the other's sample, halving the measured
+interval and making every rate wrong for as long as it lasts. The slot needs a
+`tokio::sync::Mutex` (async — it is held across the collection await), cloned out
+from under the `std::Mutex<HashMap<..>>` before awaiting, exactly as `get_sftp`
+does.
+
+## `exec::run` has no timeout — a hung NFS mount freezes the caller forever
+
+`exec::run` loops `channel.wait()` until the channel ends, with no deadline. A
+`df` blocked on a dead NFS/CIFS mount therefore leaves the future pending
+indefinitely, and with a chained-`setTimeout` poller on the frontend the panel
+simply stops updating with nothing on screen to say why. Wrap calls that touch the
+remote filesystem in `tokio::time::timeout` at the call site. GNU `df -l` skips
+remote mounts and helps, but busybox has no `-l`, so it needs the usual
+probe-and-fallback and the timeout is still the backstop. `sftp_dir_sizes`' `du`
+has the same latent hazard.
+
+## `shadcn add` wired new components to an npm package called `cn`
+
+`./node_modules/.bin/shadcn add table progress` (the local binary — `npx shadcn`
+rewrites the manifest, see above) created both files with
+`import { cn } from "cn"` and added a real dependency, `"cn": "^0.2.5"`, to
+`package.json` — instead of the `@/lib/utils` alias every other component in
+`src/components/ui/` uses and that `components.json` itself declares. It builds
+and runs, so nothing complains; the project just quietly grows a second `cn`.
+
+**Rule:** after any `shadcn add`, diff `package.json` and grep the generated files
+for imports that don't match the project's own conventions, before writing any
+code against them. Recovery here was `git checkout -- package.json
+package-lock.json` plus removing that one package from `node_modules`; a full
+`npm ci` is the answer if more than one package landed.
+
+## shadcn's `Table` brings its own scroll container, which breaks a sticky header
+
+`Table` renders `<div data-slot="table-container" class="relative w-full
+overflow-x-auto">` around the `<table>`. A box with **one** axis set to something
+other than `visible` computes the other axis to `auto` as well, so that wrapper is
+a scroll container in *both* directions — and therefore the nearest scrolling
+ancestor of a `sticky top-0` `<thead>`. Having no bounded height it never scrolls
+vertically, so the header sticks to a container that cannot move, and scrolling
+the div *outside* it slides the header away. Nothing errors.
+
+**Rule:** when putting a shadcn `Table` in a scrolling panel, bound the wrapper
+rather than an ancestor — `overflow-hidden` on the outer flex child plus
+`[&>[data-slot=table-container]]:h-full` — so the vertical scroll happens in the
+same box the sticky header is measured against. Add `table-fixed` as well if the
+column width classes and `truncate` are meant to do anything: without it they are
+advisory, and one long cell stretches the table instead of being clipped.
+
+## `core.autocrlf=true` will corrupt a shell script shipped to a remote host
+
+This repo had no `.gitattributes` and the machine has `core.autocrlf=true`, so any
+`.sh` committed here is checked out with CRLF. `src-tauri/src/ssh/monitor.sh` is
+`include_str!`ed and piped verbatim to a remote POSIX `sh`, where every line would
+arrive with a trailing `\r`: `export: not found`, and `@@` section markers that
+never match. The failure surfaces on a remote host, a long way from its cause, and
+only for whoever cloned the repo — never for the machine that wrote the file.
+
+**Rule:** any file whose bytes are shipped somewhere else verbatim needs an
+explicit `.gitattributes` entry (`*.sh text eol=lf`, and the same for captured
+test fixtures). Belt and braces, normalise at the boundary too — the collector
+does `include_str!(…).replace("\r\n", "\n")` so a stray editor cannot reintroduce
+it.
+
+## A GUI-less way to test a remote-host feature: WSL is a real Linux host
+
+The monitor's collector script and every parser in `ssh/monitor.rs` were verified
+without a server and without launching the app, by piping `monitor.sh` into
+`wsl.exe -d Debian -- sh` and reading what came back. That is a genuine Linux
+`/proc`, `ps`, `df` and `ss`, and it caught three real defects that no amount of
+reading would have: a stderr redirect that fired before `tr` ran, twenty tmpfs
+mounts crowding out the real volumes, and `ps` column padding the row parser
+mishandled. Capturing two consecutive samples two seconds apart, with a known
+`yes > /dev/null` in between, then became the regression fixture.
+
+**Rule:** before reaching for the app and a live server to test something that
+mostly consists of parsing a remote system's output, check whether the output can
+be produced locally. Two traps when doing it from Git Bash: MSYS rewrites
+unix-looking arguments into Windows paths (`wsl -- cat /tmp/s1` becomes
+`C:/…/Temp/s1`), and a background process started in one `wsl.exe` invocation does
+not survive into the next — do the whole capture inside a single script piped to
+one invocation.
+
+## In a live-updating panel, a value that changes width shoves everything near it
+
+The host monitor's disk rows read `r 33.6 KB/s  w —`, and every field was sized by
+its own text. Devices are idle most of the time, so on each refresh a rate flipped
+to a dash and back, each change resizing the box and sliding the neighbouring
+labels sideways. Worse, the whole disk block was rendered only when *something*
+was busy (`disks.some(d => read + write > 0)`), so it appeared and vanished and
+took the rest of the card up and down with it. Individually both looked like
+reasonable code; together they made a panel that will not sit still.
+
+**Rule:** in anything that re-renders on a timer, a changing value needs a slot
+that does not depend on what is in it, and a row that can go quiet must still be
+rendered — a dash holds its place, an absent row does not. For monospace figures
+`w-[9ch]` sizes the slot by the longest output the *formatter* can produce
+(`1024 KB/s`) and scales with the font, which is more honest than a pixel width
+guessed from one sample. Work out that longest string from the formatter rather
+than from what is on screen: `formatBytes` caps at 7 characters because it drops
+the decimal above 100, which is not obvious from looking at `6.1 GB`.
+
+Worth checking the whole surface once one instance shows up: the same defect was
+in the CPU `usr/sys/io/steal` line and the memory `cache/buffers` line, both of
+which had shipped in the same panel.

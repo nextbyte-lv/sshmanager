@@ -1,0 +1,9 @@
+# core.autocrlf is true on this machine, so a checkout would hand this repo's
+# shell scripts CRLF line endings. `src-tauri/src/ssh/monitor.sh` is sent to a
+# remote POSIX `sh` verbatim, and every line would arrive with a trailing \r
+# ("export: not found", and section markers that never match). Keep them LF.
+*.sh text eol=lf
+
+# The monitor test fixtures are two byte-exact captures from a real Linux host;
+# CRLF would change what the parsers are being handed.
+src-tauri/src/ssh/testdata/** text eol=lf

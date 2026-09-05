@@ -1,5 +1,5 @@
 import type { MosaicDirection } from "react-mosaic-component";
-import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
+import { Activity, Columns2, FolderOpen, Rows2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -12,9 +12,19 @@ interface PaneToolbarProps {
   onClose: () => void;
   sftpOpen: boolean;
   onToggleSftp: () => void;
+  monitorOpen: boolean;
+  onToggleMonitor: () => void;
 }
 
-export function PaneToolbar({ connections, onSplit, onClose, sftpOpen, onToggleSftp }: PaneToolbarProps) {
+export function PaneToolbar({
+  connections,
+  onSplit,
+  onClose,
+  sftpOpen,
+  onToggleSftp,
+  monitorOpen,
+  onToggleMonitor,
+}: PaneToolbarProps) {
   return (
     <div className="flex items-center gap-0.5">
       <Button
@@ -24,6 +34,15 @@ export function PaneToolbar({ connections, onSplit, onClose, sftpOpen, onToggleS
         onClick={onToggleSftp}
       >
         <FolderOpen />
+      </Button>
+
+      <Button
+        size="icon-xs"
+        variant={monitorOpen ? "secondary" : "ghost"}
+        title="Toggle host monitor"
+        onClick={onToggleMonitor}
+      >
+        <Activity />
       </Button>
 
       <DropdownMenu>

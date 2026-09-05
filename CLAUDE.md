@@ -127,6 +127,28 @@ real component (not inlined in `Mosaic`'s `renderTile` callback) specifically
 so it can hold hook state (`sftpOpen`, the terminal's `sessionId`) that a
 plain render-prop callback isn't allowed to.
 
+**Host monitor (`src-tauri/src/ssh/monitor.sh`, `ssh/monitor.rs`,
+`commands/monitor.rs`, `src/components/MonitorPanel.tsx`):** the per-pane task
+manager samples the host with **one** exec channel per poll on the session's
+existing connection. `monitor.sh` is a single POSIX collector emitting `@@name`
+sections and a final `@@end` sentinel; it is sent as channel **stdin** to a bare
+`sh`, never as `sh -c '<script>'`, because the login shell may be fish or csh and
+both reinterpret characters inside single quotes that the script's awk depends on.
+Exit status is ignored (`cat` over `/proc/[0-9]*/stat` exits nonzero whenever a pid
+vanished mid-read); the sentinel is the completeness check.
+
+Every interesting figure is a **counter delta**, so `AppState.monitor` keeps the
+previous `RawSample` per session id behind an `Arc<tokio::sync::Mutex<..>>` (async,
+because it is held across the collection await) and `monitor::diff` subtracts. That
+cache must be invalidated everywhere `AppState.sftp` is — `close_session` plus
+*both* reconnect branches in `ssh/pty.rs` — or the first sample after a host reboot
+subtracts large old counters from small new ones. The frontend polls with a chained
+`setTimeout` after the await (never `setInterval`) and skips the poll when
+`offsetParent` is null, which is exactly when its tab is hidden. All the /proc
+parsing lives in pure functions with tests, including a captured real-sample pair
+in `ssh/testdata/` — the traps here produce plausible wrong numbers rather than
+errors, and `tasks/lessons.md` lists them.
+
 **Credentials (`storage/connections_store.rs`, `secrets/keyring_store.rs`):**
 connection metadata (host/port/username/tags) is a plain JSON file at
 `%APPDATA%\<identifier>\connections.json` and never contains secrets.

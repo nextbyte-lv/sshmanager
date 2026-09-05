@@ -6,6 +6,11 @@ import type {
   TerminalEvent,
 } from "@/types/connection";
 import type {
+  KillSignal,
+  ListeningSocket,
+  Snapshot,
+} from "@/types/monitor";
+import type {
   DirSize,
   FileSyncEvent,
   SftpEntry,
@@ -130,4 +135,16 @@ export function sftpOpenFile(
   const channel = new Channel<FileSyncEvent>();
   channel.onmessage = onEvent;
   return invoke<string>("sftp_open_file", { sessionId, remotePath, onEvent: channel });
+}
+
+export function monitorSample(sessionId: string) {
+  return invoke<Snapshot>("monitor_sample", { sessionId });
+}
+
+export function monitorKill(sessionId: string, pid: number, startTicks: number, signal: KillSignal) {
+  return invoke<void>("monitor_kill", { sessionId, pid, startTicks, signal });
+}
+
+export function monitorPorts(sessionId: string) {
+  return invoke<ListeningSocket[]>("monitor_ports", { sessionId });
 }

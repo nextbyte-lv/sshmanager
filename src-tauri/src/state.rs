@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use notify::RecommendedWatcher;
 use notify_debouncer_mini::Debouncer;
@@ -10,6 +10,7 @@ use tauri::ipc::Channel;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::ssh::client::Client;
+use crate::ssh::monitor::{RawSample, Snapshot};
 use crate::ssh::pty::SessionCommand;
 use crate::ssh::sftp::FileSyncEvent;
 use crate::storage::ConnectionsStore;
@@ -45,10 +46,23 @@ pub struct WatchedFile {
     pub synced: Option<FileStamp>,
 }
 
+// One host monitor per open terminal session. `previous` is the raw sample the
+// next poll subtracts from; `recent` lets two polls that land together share one
+// answer instead of each diffing against the other's sample -- which would halve
+// the measured interval and make every rate silently wrong.
+#[derive(Default)]
+pub struct MonitorState {
+    pub previous: Option<(Instant, RawSample)>,
+    pub recent: Option<(Instant, Snapshot)>,
+}
+
 pub struct AppState {
     pub connections: Mutex<ConnectionsStore>,
     pub sessions: Mutex<HashMap<String, SessionHandle>>,
     pub sftp: Mutex<HashMap<String, Arc<SftpSession>>>,
+    // A tokio mutex, because it is held across the collection await; the outer
+    // std mutex is only ever locked long enough to clone the Arc out.
+    pub monitor: Mutex<HashMap<String, Arc<tokio::sync::Mutex<MonitorState>>>>,
     pub file_watcher: Mutex<Debouncer<RecommendedWatcher>>,
     pub watched_dirs: Mutex<HashSet<PathBuf>>,
     pub watched_files: Mutex<HashMap<PathBuf, WatchedFile>>,
@@ -60,6 +74,7 @@ impl AppState {
             connections: Mutex::new(connections),
             sessions: Mutex::new(HashMap::new()),
             sftp: Mutex::new(HashMap::new()),
+            monitor: Mutex::new(HashMap::new()),
             file_watcher: Mutex::new(file_watcher),
             watched_dirs: Mutex::new(HashSet::new()),
             watched_files: Mutex::new(HashMap::new()),

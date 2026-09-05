@@ -16,6 +16,8 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
+    --color-flash: var(--flash);
+    --color-warn: var(--warn);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);
@@ -49,6 +51,8 @@
 }
 
 :root {
+    --flash: oklch(0.72 0.15 152);
+    --warn: oklch(0.72 0.15 75);
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -84,6 +88,8 @@
 }
 
 .dark {
+    --flash: oklch(0.62 0.15 152);
+    --warn: oklch(0.75 0.15 75);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);

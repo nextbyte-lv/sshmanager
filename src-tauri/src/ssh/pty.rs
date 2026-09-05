@@ -160,6 +160,7 @@ pub async fn open(
                             handle.ssh = new_session.clone();
                         }
                         state.sftp.lock().unwrap().remove(&session_id);
+                        state.monitor.lock().unwrap().remove(&session_id);
                     }
                     session = new_session;
                     channel = new_channel;
@@ -172,6 +173,7 @@ pub async fn open(
                     if let Some(state) = app.try_state::<AppState>() {
                         state.sessions.lock().unwrap().remove(&session_id);
                         state.sftp.lock().unwrap().remove(&session_id);
+                        state.monitor.lock().unwrap().remove(&session_id);
                     }
                     break 'connection;
                 }

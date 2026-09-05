@@ -20,9 +20,9 @@ function App() {
   const [editingConnection, setEditingConnection] = useState<ConnectionProfile | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useResizablePanel({
-    defaultWidth: 288,
-    minWidth: 200,
-    maxWidth: 600,
+    defaultSize: 288,
+    minSize: 200,
+    maxSize: 600,
     collapseThreshold: 120,
     direction: "grow-right",
   });
@@ -106,7 +106,7 @@ function App() {
             connections={connections}
             activeId={null}
             activeCounts={activeConnectionCounts}
-            width={sidebar.width}
+            width={sidebar.size}
             onConnect={openNewTab}
             onEdit={handleEdit}
             onDuplicate={handleDuplicate}

@@ -1,41 +1,52 @@
 import { useCallback, useRef, useState } from "react";
 
+/**
+ * Which way the panel grows relative to the divider's drag direction. The
+ * `grow-left`/`grow-right` pair track the pointer's X, the `grow-up`/`grow-down`
+ * pair its Y — so the same hook drives the SFTP browser docked to the right of a
+ * pane and the host monitor docked below it.
+ */
+type GrowDirection = "grow-left" | "grow-right" | "grow-up" | "grow-down";
+
 interface UseResizablePanelOptions {
-  defaultWidth: number;
-  minWidth: number;
-  maxWidth: number;
-  /** Dragging narrower than this snaps the panel closed instead of leaving it stuck too thin to use. */
+  defaultSize: number;
+  minSize: number;
+  maxSize: number;
+  /** Dragging smaller than this snaps the panel closed instead of leaving it stuck too small to use. */
   collapseThreshold: number;
-  /** Which way the panel grows relative to the divider's drag direction. */
-  direction: "grow-left" | "grow-right";
+  direction: GrowDirection;
   defaultOpen?: boolean;
 }
 
 export function useResizablePanel({
-  defaultWidth,
-  minWidth,
-  maxWidth,
+  defaultSize,
+  minSize,
+  maxSize,
   collapseThreshold,
   direction,
   defaultOpen = true,
 }: UseResizablePanelOptions) {
-  const [width, setWidth] = useState(defaultWidth);
+  const [size, setSize] = useState(defaultSize);
   const [open, setOpen] = useState(defaultOpen);
-  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragState = useRef<{ start: number; startSize: number } | null>(null);
+
+  const vertical = direction === "grow-up" || direction === "grow-down";
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!dragState.current) return;
-      const rawDelta = e.clientX - dragState.current.startX;
-      const delta = direction === "grow-right" ? rawDelta : -rawDelta;
-      const raw = dragState.current.startWidth + delta;
+      const rawDelta = (vertical ? e.clientY : e.clientX) - dragState.current.start;
+      // The two "grow towards the pointer's origin" directions read the drag
+      // inverted: the divider sits on the panel's leading edge.
+      const delta = direction === "grow-right" || direction === "grow-down" ? rawDelta : -rawDelta;
+      const raw = dragState.current.startSize + delta;
       if (raw < collapseThreshold) {
         setOpen(false);
         return;
       }
-      setWidth(Math.min(maxWidth, Math.max(minWidth, raw)));
+      setSize(Math.min(maxSize, Math.max(minSize, raw)));
     },
-    [direction, collapseThreshold, minWidth, maxWidth],
+    [direction, vertical, collapseThreshold, minSize, maxSize],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -47,12 +58,12 @@ export function useResizablePanel({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      dragState.current = { startX: e.clientX, startWidth: width };
+      dragState.current = { start: vertical ? e.clientY : e.clientX, startSize: size };
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     },
-    [width, handleMouseMove, handleMouseUp],
+    [size, vertical, handleMouseMove, handleMouseUp],
   );
 
-  return { width, open, setOpen, handleMouseDown };
+  return { size, open, setOpen, handleMouseDown };
 }

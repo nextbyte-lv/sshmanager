@@ -326,7 +326,7 @@ async fn sync_watched_file(
 
 // Quotes a value for POSIX sh: inside single quotes everything is literal, and an
 // embedded quote is closed, escaped and reopened.
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
@@ -406,7 +406,7 @@ fn names_path(stderr: &str, path: &str) -> bool {
 // The last non-empty stderr line. Both a refusal from `sudo` and a shell's reason
 // for never running a command at all (`du: not found`) end up there, and later
 // lines are the specific ones — earlier output is usually context leading up to it.
-fn last_error_line(stderr: &str) -> Option<&str> {
+pub(crate) fn last_error_line(stderr: &str) -> Option<&str> {
     stderr.lines().map(str::trim).rfind(|line| !line.is_empty())
 }
 
@@ -504,7 +504,7 @@ fn sudo_password(state: &AppState, connection_id: &str) -> Option<String> {
     secrets::get_secret(connection_id, &profile.username, SecretKind::Password).ok().flatten()
 }
 
-fn session_ssh(state: &AppState, session_id: &str) -> Result<(Arc<russh::client::Handle<Client>>, String), String> {
+pub(crate) fn session_ssh(state: &AppState, session_id: &str) -> Result<(Arc<russh::client::Handle<Client>>, String), String> {
     let sessions = state.sessions.lock().unwrap();
     let session = sessions.get(session_id).ok_or_else(|| "session not found".to_string())?;
     Ok((session.ssh.clone(), session.connection_id.clone()))
@@ -512,7 +512,7 @@ fn session_ssh(state: &AppState, session_id: &str) -> Result<(Arc<russh::client:
 
 // Runs one already-quoted command line under sudo on the session's connection.
 // `args` must have every interpolated path passed through `shell_quote`.
-async fn run_with_sudo(state: &AppState, session_id: &str, args: &str) -> Result<(), String> {
+pub(crate) async fn run_with_sudo(state: &AppState, session_id: &str, args: &str) -> Result<(), String> {
     let (ssh, connection_id) = session_ssh(state, session_id)?;
     let password = sudo_password(state, &connection_id);
 

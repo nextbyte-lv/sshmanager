@@ -282,3 +282,147 @@ handing the target's ownership to the login user or a GNU-only flag.
       (expect success via sudo); the same with a key-only connection and no
       password-less sudo (expect "…and sudo could not either: sudo: a password
       is required" in the panel); cancel a picker (expect no message at all)
+
+# Remote task manager (per-pane host monitor)
+
+A bottom-docked panel per pane: CPU (model, load, steal/iowait), RAM/swap,
+filesystem usage, network throughput, and a sortable process list with *true
+instantaneous* CPU% — plus kill/signal, sparklines, a filter box, a refresh
+interval selector, and a listening-ports tab. Rows that move or appear flash
+green and fade. Linux `/proc` only; anything else says so rather than showing
+plausible-looking wrong numbers.
+
+Full design (with the arithmetic and the list of traps that produce silently
+wrong numbers) in `C:\Users\arccuks\.claude\plans\merry-singing-duckling.md`.
+
+## Backend — collection (`src-tauri/src/ssh/`)
+
+- [x] `monitor.sh` — one POSIX collector, `include_str!`ed, sent on **stdin** to
+      a bare `sh` rather than as `sh -c '<script>'`: the login shell may be fish
+      (which escapes `\` inside single quotes) or csh (which history-expands `!`
+      inside them), and an awk program parsing `/proc` is full of both
+- [x] `monitor.sh` — `@@name` section delimiters plus a final `@@end` sentinel;
+      no `set -e`; `export LC_ALL=C`; per-section `2>/dev/null`
+- [x] `monitor.rs` — parsers for `/proc/stat`, `meminfo`, `net/dev`, `uptime`,
+      `loadavg`, `cpuinfo`, `df -P -k -l`, `mounts`, the projected process table
+      and `ps`
+- [x] `monitor.rs` — `diff(prev, curr)`: htop's CPU decomposition, per-process
+      CPU% against the aggregate jiffy delta, `(pid, starttime)` keying,
+      `checked_sub` with discard-on-negative
+- [x] `monitor.rs` — degraded-data warnings: cgroup-limited container, `hidepid`,
+      missing `MemAvailable`, missing `ps`
+- [x] `monitor.rs` — `#[cfg(test)]` tests over two captured consecutive samples
+
+## Backend — commands (`src-tauri/src/commands/`)
+
+- [x] `sftp.rs` — open up `session_ssh`, `run_with_sudo`, `shell_quote`,
+      `last_error_line` as `pub(crate)` instead of duplicating them
+- [x] `monitor.rs` — `monitor_sample`, wrapped in `tokio::time::timeout`, with
+      per-session `Arc<tokio::sync::Mutex<MonitorState>>` so overlapping polls
+      cannot diff against each other's sample
+- [x] `monitor.rs` — `monitor_kill` with a `starttime` re-check before signalling
+      and a refusal for pid 1; sudo fallback on refusal
+- [x] `monitor.rs` — `monitor_ports` (`ss -H -tulpn`, `netstat` fallback)
+- [x] `state.rs` — the `monitor` map, invalidated everywhere `sftp` is:
+      `close_session`, and *both* reconnect branches in `ssh/pty.rs`
+- [x] `lib.rs` — register the three commands
+
+## Frontend (`src/`)
+
+- [x] `types/monitor.ts`, `lib/tauri.ts` bindings, `lib/monitor.ts` pure helpers
+      (formatting, sort comparators, `movedPids`)
+- [x] `hooks/useResizablePanel.ts` — vertical directions (`grow-up`/`grow-down`)
+- [x] `components/PaneToolbar.tsx` + `PaneLeaf.tsx` — the toggle and the dock
+- [x] `components/MonitorPanel.tsx` — chained-`setTimeout` polling (never
+      `setInterval`, so a slow host slows the rate instead of queueing), gated on
+      `offsetParent === null` so a panel in a hidden tab stops polling
+- [x] `components/monitor/` — `MonitorStats`, `Sparkline` (inline SVG, no new
+      dependency), `ProcessTable`, `PortsTable`
+- [x] `index.css` — `--flash` tokens for both themes; the palette is monochrome
+      by design, so no hardcoded `emerald-500`
+- [x] `ui/table.tsx`, `ui/progress.tsx` via `./node_modules/.bin/shadcn add`
+      (never `npx shadcn` — it rewrites `package.json` and the lockfile)
+
+## Verification
+
+- [x] `cargo check` (clean, no warnings), `cargo test` (26 passing),
+      `./node_modules/.bin/tsc --noEmit`, `npm run build`
+- [ ] Live against a real Linux host, side by side with `htop`/`free -m`/`df -h`
+      in the terminal directly above the panel: total CPU%, top processes' CPU%
+      and RSS, used/available RAM, each filesystem's percentage
+- [ ] Generate load (`yes > /dev/null` xN, `dd`, a large `scp`) and confirm the
+      numbers move and settle; a multi-threaded process reads >100% per-core
+- [ ] Leave it open ~10 min: no drift, no NaN, no frozen card. Force a reconnect
+      and confirm the first sample after it is discarded, not shown as a spike
+- [ ] Flash: sorted by PID only genuinely moving/new rows flash; sorted by CPU%
+      judge strobe-vs-signal and tune
+- [ ] Kill one of your own processes, then a root-owned one; on a key-auth
+      connection confirm it reports honestly instead of sending the passphrase
+      to sudo. Confirm pid 1 is refused
+- [ ] Two hosts plus one background tab: numbers stay per-host, hidden tab stops
+      polling
+
+## Verified without a server, against WSL
+
+The collector and every parser were exercised against a real Linux `/proc` before
+any of this went near the app, by piping `monitor.sh` into
+`wsl.exe -d Debian -- sh` exactly as `exec::run` will. That caught three real
+defects that reading the code would not have: a shell redirect that failed before
+`tr` ever ran (leaking to stderr), twenty tmpfs mounts crowding the real volumes
+off the disk card, and `ps` column padding the row parser mishandled.
+
+Two consecutive samples were then captured two seconds apart with a known
+`yes > /dev/null` running, and kept as `src-tauri/src/ssh/testdata/sample{1,2}.txt`.
+Against that real pair the code computes `yes` at **99.34% of one core** and the
+machine at **8.48% of 24 cores** — which is exactly what one saturated core out of
+twenty-four is. That single assertion pins the whole per-process CPU chain: the
+awk field offsets, the aggregate-jiffy denominator, the per-core scaling, and the
+`(pid, starttime)` keying. It is a regression test now.
+
+## Review
+
+Shape of it: one exec round trip per poll running `monitor.sh` (sent on **stdin**
+to a bare `sh`, not as `sh -c '<script>'` — see `tasks/lessons.md`), with Rust
+holding the previous raw sample per session and subtracting. The panel polls with
+a chained `setTimeout` after the await, so a slow host slows the rate instead of
+queueing samples, and skips the poll entirely when `offsetParent` is null — which
+is exactly when its tab is hidden, and tabs are never unmounted here.
+
+Deliberate calls worth knowing:
+
+- **Linux only.** A non-Linux host gets a plain refusal rather than partial
+  numbers. Everything in `/proc` is exact and one round trip; a sysctl/vm_stat
+  collector for BSD/macOS would be a second implementation, not a patch to this.
+- **Per-core CPU% is what is stored** (htop's and top's scale: four busy cores
+  read 400), with the whole-machine reading derived in the UI behind a toggle. An
+  unlabelled `380%` reads as a bug, so the footer always says which is showing.
+- **No total for disk I/O.** `/proc/diskstats` lists `sda`, `sda1` and `dm-0`
+  alike, so any sum double- or triple-counts. Per-device rows only, filtered to
+  what `/sys/block` calls a real device.
+- **A degraded-data badge**, because the dangerous failures here are the ones that
+  still look plausible: inside a cgroup-limited container every `/proc` figure is
+  the *host's*, and under `hidepid=2` the process list comes back nearly empty.
+  Both are detected from data the sample already collects.
+- **Kill re-checks `starttime` before signalling** and refuses pid 1. Without
+  that, a pid recycled between drawing a row and clicking it kills something
+  unrelated — the one way this feature could do real damage.
+- **Two error slots, not one** (`listError` owned by the poll, `actionError` by the
+  user's last action), following the lesson the SFTP panel already paid for.
+
+Known cost, accepted: the sample shares the terminal's TCP connection, ~90-100 KB
+per poll on a 500-process host. Mitigated by truncating `args` on the host to 200
+characters, capping the table at 300 rows, the 1s/2s/5s/paused selector, and
+pausing in background tabs — but on a slow link a 1s interval will be noticeable
+while typing, and 5s is the better choice there.
+
+Dropped from the plan after building it: `React.memo` on the rows. Every row's CPU
+value changes every tick, so it would never hit; capping the rendered rows is the
+optimisation that actually does something.
+
+- [ ] **Open question for live use — the green flash.** It fires on a row whose
+      sort position changed or that is new, as specified. Sorted by PID, name,
+      user or memory that is a genuine signal. Sorted by CPU% at a 2s poll, most
+      rows move most ticks, so it may read as strobing rather than informing.
+      There is an on/off toggle in the panel toolbar; if it does prove noisy, the
+      cheap next step is narrowing it to *new* pids only, which are rare and
+      always interesting. Judge it on the real thing before changing it.

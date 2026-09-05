@@ -1,4 +1,5 @@
 pub mod connections;
+pub mod monitor;
 pub mod session;
 pub mod sftp;
 

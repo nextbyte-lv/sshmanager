@@ -1,5 +1,6 @@
 pub mod client;
 pub mod exec;
+pub mod monitor;
 pub mod pty;
 pub mod sftp;
 
@@ -30,6 +31,8 @@ pub enum SshError {
     MissingPassword,
     #[error("this connection has no private key file configured")]
     MissingKeyPath,
+    #[error("{0}")]
+    Monitor(String),
     #[error("sftp error: {}", sftp_reason(.0))]
     Sftp(russh_sftp::client::error::Error),
     #[error("cannot read {path} on the server: {}", sftp_reason(source))]
