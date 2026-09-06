@@ -3,47 +3,47 @@ Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
 @@conf
 clk_tck 100
 pagesize 4096
-now 1788612481
+now 1788616381
 @@stat
-cpu  11328 0 5318 3305098 693 0 2205 0 0 0
-cpu0 520 0 248 137525 21 0 1049 0 0 0
-cpu1 377 0 211 137758 89 0 444 0 0 0
-cpu2 496 0 243 137652 21 0 148 0 0 0
-cpu3 380 0 208 137849 23 0 149 0 0 0
-cpu4 542 0 236 137592 26 0 73 0 0 0
-cpu5 348 0 165 137903 25 0 70 0 0 0
-cpu6 569 0 224 137607 29 0 28 0 0 0
-cpu7 490 0 167 137801 17 0 41 0 0 0
-cpu8 524 0 246 137595 38 0 18 0 0 0
-cpu9 364 0 154 137910 24 0 26 0 0 0
-cpu10 469 0 250 137622 45 0 14 0 0 0
-cpu11 451 0 170 137831 7 0 15 0 0 0
-cpu12 498 0 256 137618 65 0 11 0 0 0
-cpu13 381 0 176 137866 52 0 12 0 0 0
-cpu14 541 0 284 137568 25 0 14 0 0 0
-cpu15 444 0 197 137804 13 0 10 0 0 0
-cpu16 554 0 238 137625 16 0 13 0 0 0
-cpu17 425 0 175 137872 10 0 9 0 0 0
-cpu18 510 0 264 137610 15 0 12 0 0 0
-cpu19 533 0 185 137713 49 0 7 0 0 0
-cpu20 500 0 281 137620 16 0 9 0 0 0
-cpu21 449 0 174 137816 15 0 7 0 0 0
-cpu22 471 0 253 137653 31 0 8 0 0 0
-cpu23 483 0 303 137677 10 0 9 0 0 0
-intr 4408446 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2143 1 2 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-ctxt 6701279
+cpu  34267 0 14824 12626000 849 0 6569 0 0 0
+cpu0 1548 0 720 525498 22 0 3221 0 0 0
+cpu1 1212 0 538 526377 106 0 1266 0 0 0
+cpu2 1516 0 693 525859 36 0 498 0 0 0
+cpu3 1227 0 509 526527 23 0 417 0 0 0
+cpu4 1599 0 706 525657 136 0 192 0 0 0
+cpu5 1186 0 459 526599 25 0 193 0 0 0
+cpu6 1617 0 668 525769 30 0 86 0 0 0
+cpu7 1348 0 486 526438 18 0 113 0 0 0
+cpu8 1560 0 692 525769 39 0 62 0 0 0
+cpu9 1204 0 477 526558 25 0 79 0 0 0
+cpu10 1492 0 666 525819 46 0 42 0 0 0
+cpu11 1263 0 469 526528 8 0 44 0 0 0
+cpu12 1554 0 703 525774 67 0 35 0 0 0
+cpu13 1206 0 486 526538 52 0 41 0 0 0
+cpu14 1702 0 898 525445 26 0 38 0 0 0
+cpu15 1327 0 505 526407 14 0 24 0 0 0
+cpu16 1594 0 686 525770 18 0 34 0 0 0
+cpu17 1295 0 526 526440 10 0 29 0 0 0
+cpu18 1595 0 728 525749 16 0 26 0 0 0
+cpu19 1413 0 498 526336 49 0 22 0 0 0
+cpu20 1554 0 764 525736 16 0 30 0 0 0
+cpu21 1324 0 488 526443 16 0 16 0 0 0
+cpu22 1535 0 694 525856 31 0 31 0 0 0
+cpu23 1389 0 756 526097 10 0 21 0 0 0
+intr 13906512 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2143 1 2 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 21404960
 btime 1788611096
-processes 3006
+processes 3626
 procs_running 2
 procs_blocked 0
-softirq 1206042 0 68784 76 170220 1438 0 188689 580625 0 196210
+softirq 3939679 0 251035 145 612880 1450 0 389627 2074261 0 610281
 @@uptime
-1385.35 33050.99
+5284.70 126260.01
 @@netdev
 Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
-    lo:  164572     876    0    0    0     0          0         0   164572     876    0    0    0     0       0          0
-  eth0:   55437     340    0    0    0     0          0       214    14393     145    0    0    0     0       0          0
+    lo: 2748827208  114933    0    0    0     0          0         0 2748827208  114933    0    0    0     0       0          0
+  eth0:  110902     603    0    0    0     0          0       477    14533     147    0    0    0     0       0          0
 @@diskstats
    1       0 ram0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    1       1 ram1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -62,7 +62,7 @@ Inter-|   Receive                                                |  Transmit
    1      14 ram14 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    1      15 ram15 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    7       0 loop0 143 0 64876 72 0 0 0 0 0 28 72 0 0 0 0 0 0
-   7       1 loop1 1438 1 871034 1158 0 0 0 0 0 388 1158 0 0 0 0 0 0
+   7       1 loop1 1450 1 873570 1177 0 0 0 0 0 392 1177 0 0 0 0 0 0
    7       2 loop2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    7       3 loop3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    7       4 loop4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -70,27 +70,27 @@ Inter-|   Receive                                                |  Transmit
    7       6 loop6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    7       7 loop7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
    8      16 sdb 146 69 17874 31 0 0 0 0 0 20 31 0 0 0 0 0 0
-   8       0 sda 717 438 317690 150 0 0 0 0 0 120 150 0 0 0 0 0 0
+   8       0 sda 718 438 317698 151 0 0 0 0 0 124 151 0 0 0 0 0 0
    8      32 sdc 94 0 3936 4 2 0 8 11 0 16 22 0 0 0 0 1 7
    8      48 sdd 344 254 120116 123 144 27 334 98 0 76 256 2 0 14 0 16 33
-   8      64 sde 79981 7691 2183658 26219 6327 20669 670992 20042 0 285016 48550 8606 776 1990656304 229 866 2057
-   8      80 sdf 1618 511 281178 485 742 347 26648 1378 0 548 2047 32 3 87296 2 78 181
+   8      64 sde 80250 10312 2211506 26310 6563 21008 675552 20541 0 285228 49205 8606 776 1990656304 229 900 2123
+   8      80 sdf 2081 757 412786 848 930 518 29632 3407 0 1972 5607 32 3 87296 2 116 1349
 @@procs
-1 S 0 12 16 1 305 3393 systemd
+1 S 0 15 18 1 305 3393 systemd
+1140 S 2 0 0 1 528138 192 SessionLeader
+1141 S 1140 0 0 1 528138 240 Relay(1142)
+1142 S 1141 0 0 1 528138 442 sh
+1146 S 1142 0 0 1 528139 477 pretend-dropper
+1149 R 1142 132 167 1 528169 465 yes
+1150 S 1142 1 0 1 528169 2029 perl
+1152 S 1142 0 0 1 528269 2083 perl
 163 S 1 0 0 1 446 673 cron
-165 S 1 2 1 1 446 968 dbus-daemon
-168 S 1 2 1 1 459 2239 systemd-logind
+165 S 1 4 2 1 446 968 dbus-daemon
+168 S 1 3 2 1 459 2239 systemd-logind
 183 S 1 0 0 1 460 688 agetty
 198 S 2 0 0 1 486 192 SessionLeader
 199 S 198 0 0 1 486 240 Relay(200)
-2 S 1 0 0 2 308 435 init-systemd(De
-200 S 199 0 0 1 486 385 sh
-202 S 2 0 0 1 486 885 login
-213 S 1 5 0 1 492 2971 systemd
-215 S 213 0 0 1 493 875 (sd-pam)
-228 S 202 0 0 1 502 999 bash
-254 S 2 0 0 1 532 978 login
-662 R 661 0 0 1 138535 424 yes
+2 S 1 0 1 2 308 435 init-systemd(De
 @@ps
       1 root                             /sbin/init
       2 root                             /init
@@ -100,56 +100,56 @@ Inter-|   Receive                                                |  Transmit
     183 root                             /sbin/agetty -o -- \u --noreset --noclear - linux
     198 root                             /init
     199 root                             /init
-    200 arccuks                          sh
-    202 root                             login -- arccuks
-    213 arccuks                          /usr/lib/systemd/systemd --user
-    215 arccuks                          (sd-pam)
-    228 arccuks                          -bash
-    254 root                             login -- root
-    662 arccuks                          yes
+   1140 root                             /init
+   1141 root                             /init
+   1142 arccuks                          sh
+   1146 arccuks                          /tmp/pretend-dropper 600
+   1149 arccuks                          yes
+   1150 arccuks                          perl /tmp/sink.pl
+   1152 arccuks                          perl /tmp/send.pl
 @@meminfo
 MemTotal:       32755368 kB
-MemFree:        30962596 kB
-MemAvailable:   31278048 kB
-Buffers:            3184 kB
-Cached:           545432 kB
+MemFree:        30910288 kB
+MemAvailable:   31308124 kB
+Buffers:           16312 kB
+Cached:           613844 kB
 SwapCached:            0 kB
-Active:            93468 kB
-Inactive:         939788 kB
-Active(anon):       2704 kB
-Inactive(anon):   486556 kB
-Active(file):      90764 kB
-Inactive(file):   453232 kB
+Active:           133076 kB
+Inactive:         979024 kB
+Active(anon):       2760 kB
+Inactive(anon):   483892 kB
+Active(file):     130316 kB
+Inactive(file):   495132 kB
 Unevictable:           0 kB
 Mlocked:               0 kB
 SwapTotal:       8388608 kB
 SwapFree:        8388608 kB
 Dirty:                 0 kB
 Writeback:             0 kB
-AnonPages:        484716 kB
-Mapped:           396168 kB
-Shmem:              4684 kB
-KReclaimable:     144492 kB
-Slab:             263696 kB
-SReclaimable:     144492 kB
-SUnreclaim:       119204 kB
-KernelStack:       10456 kB
-PageTables:        10112 kB
+AnonPages:        482896 kB
+Mapped:           399488 kB
+Shmem:              4784 kB
+KReclaimable:     146356 kB
+Slab:             265484 kB
+SReclaimable:     146356 kB
+SUnreclaim:       119128 kB
+KernelStack:       10424 kB
+PageTables:        10528 kB
 SecPageTables:         0 kB
 NFS_Unstable:          0 kB
 Bounce:                0 kB
 WritebackTmp:          0 kB
 CommitLimit:    24766292 kB
-Committed_AS:    3329204 kB
+Committed_AS:    3340420 kB
 VmallocTotal:   34359738367 kB
-VmallocUsed:       46268 kB
+VmallocUsed:       46252 kB
 VmallocChunk:          0 kB
 Percpu:            12384 kB
 HardwareCorrupted:     0 kB
 AnonHugePages:         0 kB
 ShmemHugePages:        0 kB
 ShmemPmdMapped:        0 kB
-FileHugePages:         0 kB
+FileHugePages:      6144 kB
 FilePmdMapped:         0 kB
 Unaccepted:            0 kB
 Balloon:               0 kB
@@ -163,7 +163,7 @@ DirectMap4k:       74752 kB
 DirectMap2M:    11350016 kB
 DirectMap1G:    31457280 kB
 @@loadavg
-0.01 0.13 0.17 2/627 676
+0.11 0.04 0.01 2/618 1167
 @@cpuinfo
 13th Gen Intel(R) Core(TM) i7-13700KF
 
@@ -178,9 +178,9 @@ none              16377684         4   16377680       1% /mnt/wsl
 none              16377684       692   16376992       1% /mnt/wsl/docker-desktop/shared-sockets/host-services
 /dev/sdd            139283     72473      55987      57% /mnt/wsl/docker-desktop/docker-desktop-user-distro
 /dev/loop0          821044    821044          0     100% /mnt/wsl/docker-desktop/cli-tools
-drivers          975707132 387255920  588451212      40% /usr/lib/wsl/drivers
+drivers          975707132 387598560  588108572      40% /usr/lib/wsl/drivers
 /dev/sdf        1055762868   1274540 1000784856       1% /
-none              16377684        36   16377648       1% /mnt/wslg
+none              16377684        40   16377644       1% /mnt/wslg
 none              16377684         0   16377684       0% /usr/lib/wsl/lib
 rootfs            16371924      2772   16369152       1% /init
 none              16371924         0   16371924       0% /dev
@@ -189,7 +189,7 @@ none              16377684         0   16377684       0% /run/lock
 none              16377684         0   16377684       0% /run/shm
 none              16377684        80   16377604       1% /mnt/wslg/versions.txt
 none              16377684        80   16377604       1% /mnt/wslg/doc
-tmpfs             16377684        36   16377648       1% /tmp
+tmpfs             16377684       140   16377544       1% /tmp
 tmpfs                 1024         0       1024       0% /run/credentials/systemd-journald.service
 tmpfs                 1024         0       1024       0% /run/credentials/getty@tty1.service
 tmpfs              3275536         8    3275528       1% /run/user/1000
@@ -277,4 +277,15 @@ sdc
 sdd
 sde
 sdf
+@@sockets
+tcp ESTAB 0      0      127.0.0.1:57640 127.0.0.1:19999 users:(("perl",pid=1152,fd=3)) uid:1000 ino:207030 sk:2006 cgroup:/init.scope <->
+	 ts sack cubic wscale:10,10 rto:204 rtt:0.065/0.008 mss:65483 pmtu:65535 rcvmss:536 advmss:65483 cwnd:10 bytes_sent:2162688 bytes_acked:2162689 segs_out:69 segs_in:40 data_segs_out:67 send 80594461538bps lastrcv:2008 pacing_rate 159653790472bps delivery_rate 32741500000bps delivered:68 busy:4ms rcv_space:65495 rcv_ssthresh:65495 minrtt:0.004 snd_wnd:568320 rcv_wnd:65536
+tcp ESTAB 0      0      127.0.0.1:19999 127.0.0.1:57640 users:(("perl",pid=1150,fd=4)) uid:1000 ino:208993 sk:2007 cgroup:/init.scope <->
+	 ts sack cubic wscale:10,10 rto:200 rtt:0.01/0.005 ato:40 mss:32768 pmtu:65535 rcvmss:65483 advmss:65483 cwnd:10 bytes_received:2162688 segs_out:39 segs_in:69 data_segs_in:67 send 262144000000bps lastsnd:2008 pacing_rate 524288000000bps delivered:1 app_limited rcv_rtt:62.234 rcv_space:148886 rcv_ssthresh:567896 minrtt:0.01 snd_wnd:65536 rcv_wnd:568320                   
+@@exe
+lrwxrwxrwx 1 arccuks    arccuks    0 Sep  5 16:53 /proc/1142/exe -> /usr/bin/dash
+lrwxrwxrwx 1 arccuks    arccuks    0 Sep  5 16:53 /proc/1146/exe -> /tmp/pretend-dropper (deleted)
+lrwxrwxrwx 1 arccuks    arccuks    0 Sep  5 16:53 /proc/1149/exe -> /usr/bin/yes
+lrwxrwxrwx 1 arccuks    arccuks    0 Sep  5 16:52 /proc/1150/exe -> /usr/bin/perl
+lrwxrwxrwx 1 arccuks    arccuks    0 Sep  5 16:52 /proc/1152/exe -> /usr/bin/perl
 @@end

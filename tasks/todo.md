@@ -426,3 +426,84 @@ optimisation that actually does something.
       There is an on/off toggle in the panel toolbar; if it does prove noisy, the
       cheap next step is narrowing it to *new* pids only, which are rare and
       always interesting. Judge it on the real thing before changing it.
+
+## Per-process network usage, and finding a process that hides
+
+Goal: "which process is using the network", so a shady program on a server is
+easy to find. Per-process throughput on Linux has no single source — the
+attribution comes from socket inodes, and the bytes from `tcp_info`.
+
+Verified against a live kernel before designing any of it (see the WSL note
+below): `ss -tinep` reports per-socket cumulative `bytes_sent`/`bytes_received`
+that advance between polls, a stable `ino:` key to diff them by, and
+`users:(("name",pid=N,fd=M))` attribution. **`/proc/<pid>/net/dev` is a trap and
+is not used** — it is per network *namespace*, so every process in the root
+namespace reports identical host-wide totals that look convincingly per-process.
+
+Two hard limits, both surfaced in the UI rather than hidden:
+- **Byte counters are TCP only.** `tcp_info` has no UDP equivalent, so a UDP
+  beacon can be listed but not measured.
+- **Attributing another user's socket, or reading another user's
+  `/proc/<pid>/exe`, needs root.** Unprivileged you get the connection and its
+  uid but not the process. Hence the opt-in sudo button, agreed with the user:
+  off by default, one sudo'd command per refresh only while it is on.
+
+- [x] `monitor.sh` — `@@sockets` from `ss -H -tunaep -i state connected` (the
+      state filter drops listeners and TIME_WAIT, which carry no bytes; verified
+      0 rows vs 7 for all states on an idle host)
+- [x] `monitor.sh` — `@@exe` from one `ls -l /proc/[0-9]*/exe` (1 ms for every
+      pid on the host), awk-projected to `pid path [(deleted)]`
+- [x] `monitor.rs` — `RawSocket` parsing: `ss` emits two lines per socket, the
+      `-i` counters on a tab-indented continuation line
+- [x] `monitor.rs` — socket byte deltas keyed by `ino`, summed per pid into
+      per-process rx/tx rates
+- [x] `monitor.rs` — peer address classification (loopback / private / public) so
+      outbound-to-the-internet stands out
+- [x] `monitor.rs` — exe path per process, `(deleted)` flag, and a flag for
+      world-writable directories (`/tmp`, `/dev/shm`, `/var/tmp`): argv is
+      attacker-controlled, the exe symlink is not
+- [x] `commands/sftp.rs` — `run_with_sudo_output`, so the sudo mechanics stay
+      single-sourced now that a caller needs the stdout as well as the status
+- [x] `commands/monitor.rs` — `elevated` flag on `monitor_sample`: re-runs just
+      the two privileged lookups under sudo and merges them over the
+      unprivileged sample
+- [x] Frontend — sortable `Net down`/`Net up` columns, a Connections tab, the
+      elevated toggle, and a badge when attribution is incomplete
+- [x] Verify against WSL with real TCP traffic: a known transfer rate must land
+      on the right pid
+
+### Review
+
+The attribution and the bytes come from different places and are joined here:
+`ss -e` gives each socket's **inode**, which is the only identifier stable across
+polls (pids and ports are both recycled), `ss -i` gives tcp_info's cumulative
+byte counters, and `ss -p` gives the owning pid. Rust diffs the counters by inode
+and sums them onto the pid, so the process table's `Net down`/`Net up` columns
+are real per-process throughput rather than a share of a host-wide number.
+
+Proven against a live host rather than asserted: the fixture pair in
+`ssh/testdata/` was captured with a sender throttled to 64 KiB every 62.5 ms —
+1.024 MB/s, worked out *before* the capture — and the code reads **1,038,194 B/s**
+on the right pid, within 1%. The same pair carries a process running from a
+`/tmp` binary it had already deleted, so both hunting signals are regression
+tested too.
+
+Limits, all stated in the UI rather than papered over:
+- **TCP only.** tcp_info has no UDP equivalent, so a UDP socket is listed with no
+  rate. The Connections footer says so.
+- **Sockets that open and close between two refreshes are not counted.** Their
+  bytes existed but no baseline ever saw them. Counting those needs packet
+  capture (what nethogs does), which needs root and a sniffer on the host.
+- **Naming another user's process needs root**, for sockets and for
+  `/proc/<pid>/exe` alike — hence one shield toggle covering both, off by
+  default. A refused escalation degrades to the unprivileged sample plus a
+  warning, rather than failing the whole poll.
+- The toggle is deliberately *not* auto-disabled when sudo keeps refusing: the
+  warning says why and the user turns it off. Silently reverting a switch someone
+  set is worse than a visible failure, though it does mean a sudo entry per poll
+  until they do.
+
+- [ ] Live check once a real host is available: turn the shield on for a host
+      where sudo needs a password, confirm attribution appears; then on a
+      key-auth connection with no passwordless sudo, confirm it degrades to the
+      warning instead of sending the key passphrase anywhere

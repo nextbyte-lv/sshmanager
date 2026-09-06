@@ -111,4 +111,29 @@ echo "cpu_period_v1 $(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null)"
 echo "@@blockdevs"
 ls /sys/block 2>/dev/null
 
+# Per-process network. There is no per-process byte counter in /proc -- and
+# /proc/<pid>/net/dev is a trap, being per network *namespace*, so every process
+# in the root namespace reports identical host-wide totals. The real path is
+# per-socket: `-i` carries tcp_info's cumulative bytes_sent/bytes_received, `-e`
+# the socket inode to diff them by across polls, and `-p` the owning process.
+#
+# `state connected` drops listeners and TIME_WAIT, neither of which carries bytes,
+# which on a busy server is most of the table. Attribution here only covers the
+# login user's own sockets; the caller re-runs this under sudo when asked.
+echo "@@sockets"
+ss -H -tunaep -i state connected 2>/dev/null | head -n 6000
+
+# The executable behind each pid. argv is whatever the process chose to claim, but
+# this symlink is the kernel's own record -- and it still resolves after the file
+# is unlinked, where Linux appends " (deleted)". One `ls` covers every pid on the
+# host in about a millisecond. Unprivileged it resolves only the login user's own
+# processes; the target of someone else's is EACCES, and those lines have no
+# " -> " to match.
+#
+# Left as raw `ls -l` rather than projected here, so that this and the elevated
+# re-run (which cannot pipe through awk without putting a backslash-laden program
+# on a sudo command line) produce one format for one parser.
+echo "@@exe"
+ls -l /proc/[0-9]*/exe 2>/dev/null
+
 echo "@@end"

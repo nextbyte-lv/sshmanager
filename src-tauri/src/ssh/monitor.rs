@@ -115,6 +115,34 @@ impl RawProc {
     }
 }
 
+/// One socket as `ss` reports it. `inode` is the key its byte counters are diffed
+/// by across polls — pids and ports both get reused, inodes do not.
+#[derive(Debug, Clone)]
+pub struct RawSocket {
+    pub protocol: String,
+    pub state: String,
+    pub local: String,
+    pub peer: String,
+    pub inode: u64,
+    pub uid: Option<u32>,
+    /// `None` unless the socket belongs to the login user or the lookup ran as root.
+    pub pid: Option<u32>,
+    pub process: Option<String>,
+    /// From tcp_info, so TCP only: UDP sockets have no equivalent and report 0.
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+}
+
+/// What a process is really running, from `/proc/<pid>/exe` — the kernel's own
+/// record, unlike argv, which the process chooses for itself.
+#[derive(Debug, Clone)]
+pub struct ExeInfo {
+    pub path: String,
+    /// The binary has been unlinked since the process started. One of the
+    /// strongest single indicators that something does not want to be found.
+    pub deleted: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct RawFs {
     pub device: String,
@@ -153,6 +181,8 @@ pub struct RawSample {
     pub mounts: Vec<(String, String, String)>,
     pub cgroup: HashMap<String, String>,
     pub block_devices: Vec<String>,
+    pub sockets: Vec<RawSocket>,
+    pub exes: HashMap<u32, ExeInfo>,
 }
 
 // ------------------------------------------------------------------ snapshot
@@ -225,6 +255,37 @@ pub struct DiskIo {
     pub write_bytes_per_sec: f64,
 }
 
+/// Where a connection's other end lives. The point of this is to make an outbound
+/// connection to the open internet stand out from ordinary loopback and LAN traffic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerScope {
+    Loopback,
+    Private,
+    Public,
+    Unspecified,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Connection {
+    pub protocol: String,
+    pub state: String,
+    pub local: String,
+    pub peer: String,
+    pub peer_scope: PeerScope,
+    pub pid: Option<u32>,
+    /// `None` when the socket belongs to another user and the lookup was not
+    /// elevated — the connection is visible, the process behind it is not.
+    pub process: Option<String>,
+    pub uid: Option<u32>,
+    pub rx_bytes_per_sec: Option<f64>,
+    pub tx_bytes_per_sec: Option<f64>,
+}
+
+// World-writable directories: a normal service does not run from one, and a
+// dropper almost always does.
+const SUSPICIOUS_EXE_DIRS: &[&str] = &["/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"];
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Process {
     pub pid: u32,
@@ -243,6 +304,18 @@ pub struct Process {
     /// `starttime` in clock ticks. Carried so a kill can prove the pid still refers
     /// to the process the user clicked on.
     pub start_ticks: u64,
+    /// Summed over this process's sockets. TCP only, and `None` until there are two
+    /// samples to diff.
+    pub net_rx_bytes_per_sec: Option<f64>,
+    pub net_tx_bytes_per_sec: Option<f64>,
+    /// What the kernel says is running, as opposed to what argv claims. `None` for
+    /// a kernel thread, and for another user's process unless the lookup was
+    /// elevated.
+    pub exe_path: Option<String>,
+    /// The binary was unlinked after the process started.
+    pub exe_deleted: bool,
+    /// The binary lives in a world-writable directory.
+    pub exe_suspicious: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -257,6 +330,10 @@ pub struct Snapshot {
     pub network: Vec<NetInterface>,
     pub disks: Vec<DiskIo>,
     pub processes: Vec<Process>,
+    pub connections: Vec<Connection>,
+    /// Connections whose owning process could not be named. Non-zero means the
+    /// lookup was not elevated and some of them belong to other users.
+    pub unattributed_connections: usize,
     /// Reasons a number on screen may not mean what it appears to.
     pub warnings: Vec<String>,
     /// First sample of a session: rates are not knowable yet.
@@ -345,7 +422,116 @@ fn parse(stdout: &str) -> Result<RawSample, String> {
         mounts: parse_mounts(section("mounts")),
         cgroup: parse_key_values(section("cgroup")),
         block_devices: section("blockdevs").split_whitespace().map(str::to_string).collect(),
+        sockets: parse_sockets(section("sockets")),
+        exes: parse_exes(section("exe")),
     })
+}
+
+/// Reads `<tag><digits>` out of a line. `ss` prints a bag of `name:value` and
+/// `name=value` tokens whose order and presence vary by kernel and by socket type,
+/// so they are looked up by name rather than by position.
+fn tagged_number(line: &str, tag: &str) -> Option<u64> {
+    let start = line.find(tag)? + tag.len();
+    let digits: String = line[start..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// `ss -H -tunaep -i` emits two lines per socket: the socket itself, then a
+/// tab-indented continuation carrying the tcp_info counters. The continuation is
+/// folded into the socket above it.
+fn parse_sockets(text: &str) -> Vec<RawSocket> {
+    let mut sockets: Vec<RawSocket> = Vec::new();
+
+    for line in text.lines() {
+        if line.starts_with([' ', '\t']) {
+            // tcp_info for the socket just parsed. Absent for UDP, and for a TCP
+            // socket on a kernel too old to report it, in which case the rates
+            // stay at zero rather than becoming wrong.
+            if let Some(socket) = sockets.last_mut() {
+                socket.bytes_sent = tagged_number(line, " bytes_sent:").unwrap_or(0);
+                socket.bytes_received = tagged_number(line, " bytes_received:").unwrap_or(0);
+            }
+            continue;
+        }
+
+        // Only the first six fields are positional. Everything after them is
+        // name-tagged, which matters because a process name can contain spaces.
+        let f: Vec<&str> = line.split_whitespace().take(6).collect();
+        if f.len() < 6 {
+            continue;
+        }
+        let Some(inode) = tagged_number(line, " ino:") else { continue };
+
+        // `users:(("name",pid=N,fd=M),...)` — the first entry is enough; a socket
+        // shared by several processes is rare and the owner is the one that matters.
+        let process = line.split_once("users:((\"").and_then(|(_, rest)| rest.split_once('"')).map(|(name, _)| name.to_string());
+
+        sockets.push(RawSocket {
+            protocol: f[0].to_string(),
+            state: f[1].to_string(),
+            local: f[4].to_string(),
+            peer: f[5].to_string(),
+            inode,
+            uid: tagged_number(line, " uid:").map(|uid| uid as u32),
+            pid: tagged_number(line, "pid=").map(|pid| pid as u32),
+            process,
+            bytes_sent: 0,
+            bytes_received: 0,
+        });
+    }
+    sockets
+}
+
+/// Parses `ls -l /proc/[0-9]*/exe`:
+/// `lrwxrwxrwx 1 root root 0 Sep  5 16:45 /proc/1028/exe -> /tmp/dropper (deleted)`
+///
+/// A line with no ` -> ` is a link whose target could not be read — which is
+/// precisely what an unprivileged run gets for every process it does not own, so it
+/// is skipped rather than treated as an error.
+fn parse_exes(text: &str) -> HashMap<u32, ExeInfo> {
+    text.lines()
+        .filter_map(|line| {
+            let (head, target) = line.split_once(" -> ")?;
+            let link = head.rsplit(' ').next()?;
+            let pid = link.strip_prefix("/proc/")?.strip_suffix("/exe")?.parse().ok()?;
+            // Linux appends this to the target once the file is unlinked.
+            let deleted = target.ends_with(" (deleted)");
+            let path = target.strip_suffix(" (deleted)").unwrap_or(target);
+            Some((pid, ExeInfo { path: path.to_string(), deleted }))
+        })
+        .collect()
+}
+
+/// The two lookups that need root for anything the login user does not own, as one
+/// command line.
+///
+/// Deliberately free of backslashes, `!` and newlines: it reaches the remote host
+/// as a single-quoted word on a `sudo sh -c` command line, and single quotes hold
+/// under fish and csh only for content like this. (The unprivileged sample avoids
+/// the whole question by going in on stdin, but stdin is spoken for here — it
+/// carries the sudo password.)
+/// Each lookup discards its own stderr, matching `monitor.sh`: `ls` reports every
+/// link it cannot read, which even under sudo is normal noise on some hosts, and it
+/// would otherwise be the "reason" reported for a run that actually succeeded.
+pub const PRIVILEGED_COMMAND: &str =
+    "echo @@sockets; ss -H -tunaep -i state connected 2>/dev/null; \
+     echo @@exe; ls -l /proc/[0-9]*/exe 2>/dev/null; echo @@end";
+
+/// Overlays an elevated re-run of the privileged lookups onto an unprivileged
+/// sample. Returns false if the output was cut short, in which case the caller keeps
+/// the unprivileged data rather than showing a half-populated connection list.
+pub fn merge_privileged(sample: &mut RawSample, stdout: &str) -> bool {
+    let sections = split_sections(stdout);
+    if !sections.contains_key("end") {
+        return false;
+    }
+    if let Some(text) = sections.get("sockets") {
+        sample.sockets = parse_sockets(text);
+    }
+    if let Some(text) = sections.get("exe") {
+        sample.exes = parse_exes(text);
+    }
+    true
 }
 
 fn split_sections(stdout: &str) -> HashMap<&str, &str> {
@@ -578,6 +764,10 @@ pub fn diff(previous: Option<&RawSample>, current: &RawSample) -> Snapshot {
     let cpu = previous.and_then(|prev| cpu_usage(prev, current));
     let measuring = cpu.is_none();
 
+    let socket_rates = socket_rates(previous, current, elapsed);
+    let connections = connections(current, &socket_rates);
+    let unattributed_connections = connections.iter().filter(|c| c.process.is_none()).count();
+
     let mut warnings = Vec::new();
     let memory = memory_usage(current, &mut warnings);
     collect_warnings(current, &mut warnings);
@@ -592,7 +782,14 @@ pub fn diff(previous: Option<&RawSample>, current: &RawSample) -> Snapshot {
         filesystems: filesystems(current),
         network: network(previous, current, elapsed),
         disks: disk_io(previous, current, elapsed),
-        processes: processes(previous, current, memory_total_bytes(current)),
+        processes: processes(
+            previous,
+            current,
+            memory_total_bytes(current),
+            &per_process_network(current, &socket_rates),
+        ),
+        connections,
+        unattributed_connections,
         warnings,
         measuring,
         sampled_at: current.remote_now,
@@ -812,7 +1009,117 @@ fn disk_io(previous: Option<&RawSample>, current: &RawSample, elapsed: Option<f6
         .collect()
 }
 
-fn processes(previous: Option<&RawSample>, current: &RawSample, total_memory: u64) -> Vec<Process> {
+/// Throughput per socket, keyed by inode.
+///
+/// Inode rather than pid or port, because both of those get reused: a socket that
+/// closed and a new one that inherited its port would otherwise be diffed against
+/// each other. A socket that appeared since the last sample has no baseline and is
+/// simply absent here, which undercounts very short-lived connections — the honest
+/// alternative would be packet capture, which needs root and a sniffer.
+fn socket_rates(
+    previous: Option<&RawSample>,
+    current: &RawSample,
+    elapsed: Option<f64>,
+) -> HashMap<u64, (f64, f64)> {
+    let Some(seconds) = elapsed else { return HashMap::new() };
+    let earlier: HashMap<u64, (u64, u64)> = previous
+        .map(|prev| {
+            prev.sockets.iter().map(|s| (s.inode, (s.bytes_received, s.bytes_sent))).collect()
+        })
+        .unwrap_or_default();
+
+    current
+        .sockets
+        .iter()
+        .filter_map(|socket| {
+            let (was_rx, was_tx) = earlier.get(&socket.inode)?;
+            let rx = socket.bytes_received.checked_sub(*was_rx)?;
+            let tx = socket.bytes_sent.checked_sub(*was_tx)?;
+            Some((socket.inode, (rx as f64 / seconds, tx as f64 / seconds)))
+        })
+        .collect()
+}
+
+fn connections(current: &RawSample, rates: &HashMap<u64, (f64, f64)>) -> Vec<Connection> {
+    current
+        .sockets
+        .iter()
+        .map(|socket| {
+            let rate = rates.get(&socket.inode);
+            Connection {
+                protocol: socket.protocol.clone(),
+                state: socket.state.clone(),
+                local: socket.local.clone(),
+                peer: socket.peer.clone(),
+                peer_scope: peer_scope(&socket.peer),
+                pid: socket.pid,
+                process: socket.process.clone(),
+                uid: socket.uid,
+                rx_bytes_per_sec: rate.map(|(rx, _)| *rx),
+                tx_bytes_per_sec: rate.map(|(_, tx)| *tx),
+            }
+        })
+        .collect()
+}
+
+fn per_process_network(
+    current: &RawSample,
+    rates: &HashMap<u64, (f64, f64)>,
+) -> HashMap<u32, (f64, f64)> {
+    let mut totals: HashMap<u32, (f64, f64)> = HashMap::new();
+    for socket in &current.sockets {
+        let (Some(pid), Some((rx, tx))) = (socket.pid, rates.get(&socket.inode)) else { continue };
+        let entry = totals.entry(pid).or_insert((0.0, 0.0));
+        entry.0 += rx;
+        entry.1 += tx;
+    }
+    totals
+}
+
+// Which side of the machine the other end of a connection is on.
+fn peer_scope(endpoint: &str) -> PeerScope {
+    let (host, _) = split_address(endpoint);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    if host.is_empty() || host == "*" || host == "0.0.0.0" || host == "::" {
+        return PeerScope::Unspecified;
+    }
+    // An IPv4 address written in IPv6 notation is still an IPv4 address.
+    let host = host.rsplit_once("::ffff:").map(|(_, v4)| v4).unwrap_or(host);
+
+    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse().ok()).collect();
+    if octets.len() == 4 {
+        return match (octets[0], octets[1]) {
+            (127, _) => PeerScope::Loopback,
+            (10, _) | (192, 168) | (169, 254) => PeerScope::Private,
+            (172, 16..=31) => PeerScope::Private,
+            // Carrier-grade NAT: the far end is still the provider's network,
+            // not somewhere this host chose to talk to.
+            (100, 64..=127) => PeerScope::Private,
+            _ => PeerScope::Public,
+        };
+    }
+
+    let host = host.to_ascii_lowercase();
+    if host == "::1" {
+        return PeerScope::Loopback;
+    }
+    // fc00::/7 unique-local and fe80::/10 link-local.
+    let leading = host.split(':').next().unwrap_or("");
+    if leading.starts_with("fc") || leading.starts_with("fd") {
+        return PeerScope::Private;
+    }
+    match u16::from_str_radix(leading, 16) {
+        Ok(group) if (0xfe80..=0xfebf).contains(&group) => PeerScope::Private,
+        _ => PeerScope::Public,
+    }
+}
+
+fn processes(
+    previous: Option<&RawSample>,
+    current: &RawSample,
+    total_memory: u64,
+    network: &HashMap<u32, (f64, f64)>,
+) -> Vec<Process> {
     // Keyed by (pid, starttime), never by pid alone: Linux reuses pids, and diffing
     // a fresh process against a dead one's counters yields either a negative delta
     // or an absurd spike. htop keys the same way for the same reason.
@@ -834,6 +1141,7 @@ fn processes(previous: Option<&RawSample>, current: &RawSample, total_memory: u6
         .iter()
         .map(|proc| {
             let ps = current.ps.get(&proc.pid);
+            let exe = current.exes.get(&proc.pid);
             let cpu_percent = cpu_denominator.and_then(|denominator| {
                 let was = earlier.get(&(proc.pid, proc.starttime))?;
                 let ticks = proc.cpu_ticks().checked_sub(*was)?;
@@ -868,6 +1176,12 @@ fn processes(previous: Option<&RawSample>, current: &RawSample, total_memory: u6
                     .filter(|_| current.clk_tck > 0)
                     .map(|btime| btime + (proc.starttime / current.clk_tck) as i64),
                 start_ticks: proc.starttime,
+                net_rx_bytes_per_sec: network.get(&proc.pid).map(|(rx, _)| *rx),
+                net_tx_bytes_per_sec: network.get(&proc.pid).map(|(_, tx)| *tx),
+                exe_path: exe.map(|info| info.path.clone()),
+                exe_deleted: exe.is_some_and(|info| info.deleted),
+                exe_suspicious: exe
+                    .is_some_and(|info| SUSPICIOUS_EXE_DIRS.iter().any(|dir| info.path.starts_with(dir))),
             }
         })
         .collect()
@@ -1232,8 +1546,9 @@ mod tests {
         let busy = snapshot.processes.iter().find(|p| p.name == "yes").expect("the load process");
         let percent = busy.cpu_percent.expect("a diffed process has a percentage");
         assert!((95.0..105.0).contains(&percent), "yes read {percent}%");
-        // 424 pages of RSS, in pages rather than kB.
-        assert_eq!(busy.memory_bytes, 424 * 4096);
+        // The fixture records 465 *pages* of RSS. Reading that as kB would give
+        // 476 KB instead of 1.9 MB, and both look plausible on screen.
+        assert_eq!(busy.memory_bytes, 465 * 4096);
         // The `ps` join supplied the owner and the command line.
         assert!(!busy.user.is_empty());
         assert_eq!(busy.command, "yes");
@@ -1249,6 +1564,159 @@ mod tests {
         assert!(snapshot.memory.used_bytes < snapshot.memory.total_bytes);
         // Nothing about this host is degraded, so nothing should be claimed.
         assert!(snapshot.warnings.is_empty(), "{:?}", snapshot.warnings);
+    }
+
+    // The same real pair also carried a throttled TCP transfer and a process
+    // running from a binary it had deleted -- the two things the network view
+    // exists to find.
+    #[test]
+    fn the_real_pair_attributes_a_known_transfer_rate_to_the_right_process() {
+        let first = parse(include_str!("testdata/sample1.txt")).expect("sample 1 parses");
+        let second = parse(include_str!("testdata/sample2.txt")).expect("sample 2 parses");
+        let snapshot = diff(Some(&first), &second);
+
+        // The sender was throttled to 64 KiB every 62.5 ms, i.e. 1.024 MB/s, and
+        // that figure was predicted before the capture rather than read off it.
+        // Anything near 1 MB/s here means the socket inodes matched across the two
+        // samples, the tcp_info counters were read from the right tokens, and the
+        // per-socket deltas were summed onto the right pid.
+        let sender = snapshot
+            .processes
+            .iter()
+            .find(|p| p.net_tx_bytes_per_sec.is_some_and(|tx| tx > 1000.0))
+            .expect("the transferring process");
+        let tx = sender.net_tx_bytes_per_sec.unwrap();
+        assert!((900_000.0..1_200_000.0).contains(&tx), "sender read {tx} B/s");
+        assert_eq!(sender.name, "perl");
+
+        // Its counterpart saw the same bytes arrive.
+        let receiver = snapshot
+            .processes
+            .iter()
+            .find(|p| p.net_rx_bytes_per_sec.is_some_and(|rx| rx > 1000.0))
+            .expect("the receiving process");
+        assert!(receiver.pid != sender.pid);
+
+        // Both ends of a loopback transfer, so nothing here should look outbound.
+        assert_eq!(snapshot.connections.len(), 2);
+        assert!(snapshot.connections.iter().all(|c| c.peer_scope == PeerScope::Loopback));
+        assert!(snapshot.connections.iter().all(|c| c.process.as_deref() == Some("perl")));
+        assert_eq!(snapshot.unattributed_connections, 0);
+
+        // A process whose binary was unlinked out from under it, in /tmp.
+        let dropper = snapshot
+            .processes
+            .iter()
+            .find(|p| p.name == "pretend-dropper")
+            .expect("the self-deleting process");
+        assert_eq!(dropper.exe_path.as_deref(), Some("/tmp/pretend-dropper"));
+        assert!(dropper.exe_deleted, "an unlinked binary must be flagged");
+        assert!(dropper.exe_suspicious, "/tmp is world-writable");
+
+        // And an ordinary one is flagged as neither.
+        let ordinary = snapshot.processes.iter().find(|p| p.name == "yes").expect("the load process");
+        assert!(!ordinary.exe_deleted && !ordinary.exe_suspicious, "{:?}", ordinary.exe_path);
+    }
+
+    #[test]
+    fn sockets_fold_their_tab_indented_counter_line_in() {
+        // Verbatim from `ss -H -tunaep -i state connected` on a live host.
+        let text = "tcp ESTAB 0      0      127.0.0.1:57640 127.0.0.1:19999 \
+                    users:((\"perl\",pid=1152,fd=3)) uid:1000 ino:207030 sk:2006 cgroup:/init.scope <->\n\
+                    \t ts sack cubic wscale:10,10 rto:204 rtt:0.065/0.008 mss:65483 cwnd:10 \
+                    bytes_sent:2162688 bytes_acked:2162689 segs_out:99\n\
+                    udp ESTAB 0      0        10.0.0.5:41234    1.1.1.1:53 uid:1000 ino:207031 sk:2008 <->\n";
+        let sockets = parse_sockets(text);
+        assert_eq!(sockets.len(), 2);
+
+        assert_eq!(sockets[0].inode, 207030);
+        assert_eq!(sockets[0].pid, Some(1152));
+        assert_eq!(sockets[0].process.as_deref(), Some("perl"));
+        assert_eq!(sockets[0].uid, Some(1000));
+        assert_eq!(sockets[0].local, "127.0.0.1:57640");
+        assert_eq!(sockets[0].peer, "127.0.0.1:19999");
+        assert_eq!(sockets[0].bytes_sent, 2_162_688);
+        // `bytes_acked` must not be mistaken for it, and an absent counter is zero.
+        assert_eq!(sockets[0].bytes_received, 0);
+
+        // UDP has no tcp_info line at all, and this one has no `users:` either --
+        // an unattributed socket, which is what an unprivileged run sees for
+        // anything it does not own.
+        assert_eq!(sockets[1].inode, 207031);
+        assert_eq!(sockets[1].protocol, "udp");
+        assert_eq!(sockets[1].pid, None);
+        assert_eq!(sockets[1].process, None);
+        assert_eq!(sockets[1].bytes_sent, 0);
+    }
+
+    #[test]
+    fn exe_links_carry_the_deleted_marker_and_skip_unreadable_ones() {
+        let text = "lrwxrwxrwx 1 root root 0 Sep  5 16:53 /proc/1/exe\n\
+                    lrwxrwxrwx 1 me me 0 Sep  5 16:53 /proc/1146/exe -> /tmp/pretend-dropper (deleted)\n\
+                    lrwxrwxrwx 1 me me 0 Sep  5 16:53 /proc/1149/exe -> /usr/bin/yes\n";
+        let exes = parse_exes(text);
+        // pid 1 has no ` -> `: its target was EACCES, not missing.
+        assert_eq!(exes.len(), 2);
+        assert_eq!(exes[&1146].path, "/tmp/pretend-dropper");
+        assert!(exes[&1146].deleted);
+        assert_eq!(exes[&1149].path, "/usr/bin/yes");
+        assert!(!exes[&1149].deleted);
+    }
+
+    #[test]
+    fn an_elevated_rerun_replaces_the_unprivileged_lookups() {
+        let mut sample = sample(0, 0.0, 0);
+        sample.sockets = parse_sockets(
+            "tcp ESTAB 0 0 10.0.0.5:22 10.0.0.9:51000 uid:0 ino:11 sk:1 <->\n",
+        );
+        sample.exes = HashMap::new();
+        assert_eq!(sample.sockets[0].process, None);
+
+        // What sudo returns: the same socket, now with an owner, plus exe links.
+        let elevated = "@@sockets\n\
+                        tcp ESTAB 0 0 10.0.0.5:22 10.0.0.9:51000 users:((\"sshd\",pid=800,fd=4)) uid:0 ino:11 sk:1 <->\n\
+                        @@exe\n\
+                        lrwxrwxrwx 1 root root 0 Sep  5 16:53 /proc/800/exe -> /usr/sbin/sshd\n\
+                        @@end\n";
+        assert!(merge_privileged(&mut sample, elevated));
+        assert_eq!(sample.sockets[0].process.as_deref(), Some("sshd"));
+        assert_eq!(sample.sockets[0].pid, Some(800));
+        assert_eq!(sample.exes[&800].path, "/usr/sbin/sshd");
+
+        // Output cut short is refused, so a half-populated connection list never
+        // replaces a complete unprivileged one.
+        let mut untouched = sample.clone();
+        assert!(!merge_privileged(&mut untouched, "@@sockets\ntcp ESTAB 0 0 x y ino:99 <->\n"));
+        assert_eq!(untouched.sockets[0].inode, 11);
+    }
+
+    #[test]
+    fn peers_are_sorted_into_loopback_private_and_public() {
+        for address in ["127.0.0.1:22", "[::1]:443"] {
+            assert_eq!(peer_scope(address), PeerScope::Loopback, "{address}");
+        }
+        for address in [
+            "10.1.2.3:80",
+            "192.168.0.5:443",
+            "172.16.0.1:22",
+            "172.31.255.254:22",
+            "169.254.1.1:80",
+            "100.64.0.1:443", // carrier-grade NAT
+            "[fd00::1]:8080",
+            "[fe80::1]:80",
+        ] {
+            assert_eq!(peer_scope(address), PeerScope::Private, "{address}");
+        }
+        for address in ["8.8.8.8:53", "45.33.32.156:4444", "172.32.0.1:80", "[2606:4700::1111]:443"] {
+            assert_eq!(peer_scope(address), PeerScope::Public, "{address}");
+        }
+        // An IPv4 address in IPv6 clothing is still an IPv4 address.
+        assert_eq!(peer_scope("[::ffff:10.0.0.1]:80"), PeerScope::Private);
+        assert_eq!(peer_scope("[::ffff:8.8.8.8]:80"), PeerScope::Public);
+        // A wildcard or unbound peer is neither.
+        for address in ["*:*", "0.0.0.0:*", "[::]:*"] {
+            assert_eq!(peer_scope(address), PeerScope::Unspecified, "{address}");
+        }
     }
 
     #[test]

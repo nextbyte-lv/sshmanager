@@ -9,7 +9,7 @@ use crate::ssh::monitor::{self, ListeningSocket, RawSample, Snapshot};
 use crate::ssh::{self};
 use crate::state::{AppState, MonitorState};
 
-use super::sftp::{last_error_line, run_with_sudo, session_ssh};
+use super::sftp::{last_error_line, run_with_sudo, run_with_sudo_output, session_ssh, shell_quote};
 
 // `exec::run` waits on the channel until it ends, with no deadline of its own, so
 // a `df` blocked on a dead NFS mount would leave the poll pending forever and the
@@ -37,6 +37,44 @@ async fn collect(ssh: &Arc<russh::client::Handle<Client>>) -> Result<RawSample, 
         .await
         .map_err(|_| "the host did not answer in time — a hung network mount will do this".to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// One sample, optionally with the privileged lookups overlaid.
+///
+/// Socket-to-process attribution and reading `/proc/<pid>/exe` both need root for
+/// anything the login user does not own — which is exactly the process someone
+/// hunting a rogue program cares about. So when asked, the two lookups are re-run
+/// under sudo and merged over the unprivileged sample: one extra command per poll,
+/// and only while the user has the toggle on.
+///
+/// A refused escalation is not fatal. The unprivileged sample is still useful — it
+/// just cannot name other users' processes — so the failure is reported alongside
+/// the data rather than instead of it.
+async fn collect_sample(
+    state: &AppState,
+    session_id: &str,
+    ssh: &Arc<russh::client::Handle<Client>>,
+    elevated: bool,
+) -> (Result<RawSample, String>, Option<String>) {
+    let mut sample = match collect(ssh).await {
+        Ok(sample) => sample,
+        Err(error) => return (Err(error), None),
+    };
+    if !elevated {
+        return (Ok(sample), None);
+    }
+
+    let args = format!("sh -c {}", shell_quote(monitor::PRIVILEGED_COMMAND));
+    match run_with_sudo_output(state, session_id, &args).await {
+        // Judged on the output, not the status: `ss` exits nonzero on a host where
+        // it cannot name every process, having still listed every socket.
+        Ok(output) if monitor::merge_privileged(&mut sample, &output.stdout) => (Ok(sample), None),
+        Ok(output) => {
+            let reason = last_error_line(&output.stderr).unwrap_or("sudo produced no output");
+            (Ok(sample), Some(format!("could not read other users' processes: {reason}")))
+        }
+        Err(reason) => (Ok(sample), Some(format!("could not read other users' processes: {reason}"))),
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -69,7 +107,11 @@ fn monitor_slot(state: &AppState, session_id: &str) -> Arc<tokio::sync::Mutex<Mo
 }
 
 #[tauri::command]
-pub async fn monitor_sample(state: State<'_, AppState>, session_id: String) -> Result<Snapshot, String> {
+pub async fn monitor_sample(
+    state: State<'_, AppState>,
+    session_id: String,
+    elevated: bool,
+) -> Result<Snapshot, String> {
     let (ssh, _) = session_ssh(&state, &session_id)?;
     let slot = monitor_slot(&state, &session_id);
 
@@ -78,7 +120,10 @@ pub async fn monitor_sample(state: State<'_, AppState>, session_id: String) -> R
     let mut monitor = slot.lock().await;
 
     if let Some((taken, snapshot)) = &monitor.recent {
-        if taken.elapsed() < CACHE_WINDOW {
+        // The cached answer is only good for the same privilege level: switching the
+        // toggle on must not hand back the unprivileged snapshot it was meant to
+        // replace.
+        if taken.elapsed() < CACHE_WINDOW && monitor.recent_elevated == elevated {
             return Ok(snapshot.clone());
         }
     }
@@ -98,18 +143,24 @@ pub async fn monitor_sample(state: State<'_, AppState>, session_id: String) -> R
     let baseline = match monitor.previous.take() {
         Some((taken, sample)) if taken.elapsed() < STALE_BASELINE => Some(sample),
         Some(_) => {
-            let primer = collect(&ssh).await?;
+            // The primer is taken at the same privilege level as the sample it will
+            // be subtracted from: a baseline that could only see the login user's
+            // sockets would leave every newly visible one without a rate.
+            let (primer, _) = collect_sample(&state, &session_id, &ssh, elevated).await;
             tokio::time::sleep(PRIME_GAP).await;
-            Some(primer)
+            Some(primer?)
         }
         None => None,
     };
 
-    let sample = collect(&ssh).await?;
-    let snapshot = monitor::diff(baseline.as_ref(), &sample);
+    let (sample, escalation_failure) = collect_sample(&state, &session_id, &ssh, elevated).await;
+    let sample = sample?;
+    let mut snapshot = monitor::diff(baseline.as_ref(), &sample);
+    snapshot.warnings.extend(escalation_failure);
 
     monitor.previous = Some((Instant::now(), sample));
     monitor.recent = Some((Instant::now(), snapshot.clone()));
+    monitor.recent_elevated = elevated;
     Ok(snapshot)
 }
 

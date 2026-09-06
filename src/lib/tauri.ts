@@ -137,8 +137,13 @@ export function sftpOpenFile(
   return invoke<string>("sftp_open_file", { sessionId, remotePath, onEvent: channel });
 }
 
-export function monitorSample(sessionId: string) {
-  return invoke<Snapshot>("monitor_sample", { sessionId });
+/**
+ * `elevated` re-runs the two lookups that need root — socket-to-process
+ * attribution and reading /proc/<pid>/exe — through sudo, so processes belonging
+ * to other users can be named. Off, they show as unattributed.
+ */
+export function monitorSample(sessionId: string, elevated: boolean) {
+  return invoke<Snapshot>("monitor_sample", { sessionId, elevated });
 }
 
 export function monitorKill(sessionId: string, pid: number, startTicks: number, signal: KillSignal) {

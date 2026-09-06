@@ -45,7 +45,16 @@ export function formatAge(startedAt: number | null, sampledAt: number): string {
   return formatDuration(sampledAt - startedAt);
 }
 
-export type SortColumn = "pid" | "user" | "name" | "cpu" | "memory" | "threads" | "started";
+export type SortColumn =
+  | "pid"
+  | "user"
+  | "name"
+  | "cpu"
+  | "memory"
+  | "threads"
+  | "started"
+  | "netrx"
+  | "nettx";
 export type SortDirection = "asc" | "desc";
 
 /** The direction each column should take on its first click, i.e. the interesting end first. */
@@ -57,6 +66,8 @@ export const DEFAULT_DIRECTION: Record<SortColumn, SortDirection> = {
   memory: "desc",
   threads: "desc",
   started: "desc",
+  netrx: "desc",
+  nettx: "desc",
 };
 
 function compare(a: Process, b: Process, column: SortColumn): number {
@@ -77,6 +88,12 @@ function compare(a: Process, b: Process, column: SortColumn): number {
       return a.threads - b.threads;
     case "started":
       return (a.started_at ?? 0) - (b.started_at ?? 0);
+    // A process with no sockets at all sorts as zero rather than above one that
+    // simply has nothing to send right now.
+    case "netrx":
+      return (a.net_rx_bytes_per_sec ?? 0) - (b.net_rx_bytes_per_sec ?? 0);
+    case "nettx":
+      return (a.net_tx_bytes_per_sec ?? 0) - (b.net_tx_bytes_per_sec ?? 0);
   }
 }
 

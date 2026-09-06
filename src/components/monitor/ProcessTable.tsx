@@ -1,4 +1,4 @@
-import { MoreVertical } from "lucide-react";
+import { AlertTriangle, MoreVertical } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +9,14 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatAge, formatBytes, formatPercent, type SortColumn, type SortDirection } from "@/lib/monitor";
+import {
+    formatAge,
+    formatBytes,
+    formatPercent,
+    formatRate,
+    type SortColumn,
+    type SortDirection,
+} from "@/lib/monitor";
 import { cn } from "@/lib/utils";
 import type { KillSignal, Process } from "@/types/monitor";
 
@@ -41,10 +48,48 @@ const COLUMNS: { column: SortColumn; label: string; className: string; title?: s
         title: "Share of processor time since the last refresh",
     },
     { column: "memory", label: "Memory", className: "w-24 text-right" },
+    {
+        column: "netrx",
+        label: "Net down",
+        className: "w-24 text-right",
+        title: "Received over this process's TCP sockets since the last refresh",
+    },
+    {
+        column: "nettx",
+        label: "Net up",
+        className: "w-24 text-right",
+        title: "Sent over this process's TCP sockets — sort by this to find something uploading",
+    },
     { column: "threads", label: "Thr", className: "w-12 text-right" },
     { column: "started", label: "Age", className: "w-16 text-right" },
     { column: "name", label: "Command", className: "min-w-0" },
 ];
+
+/**
+ * The two "this does not look like a normal service" signals, drawn next to the
+ * command line because that is where the eye already is.
+ *
+ * A binary that has been unlinked while still running is the stronger of the two —
+ * legitimate software is replaced by a package manager, not deleted out from under
+ * itself — so it gets the destructive colour and the other gets the warning one.
+ */
+function ExeWarning({ process }: { process: Process }) {
+    if (!process.exe_deleted && !process.exe_suspicious) return null;
+    const reason = process.exe_deleted
+        ? `Its binary has been deleted from disk since it started: ${process.exe_path}`
+        : `It is running from a world-writable directory: ${process.exe_path}`;
+    return (
+        <AlertTriangle
+            className={cn(
+                "mr-1 inline size-3 shrink-0 align-[-1px]",
+                process.exe_deleted ? "text-destructive" : "text-warn",
+            )}
+            aria-label={reason}
+        >
+            <title>{reason}</title>
+        </AlertTriangle>
+    );
+}
 
 export function ProcessTable({
     rows,
@@ -118,13 +163,30 @@ export function ProcessTable({
                                     >
                                         {formatBytes(process.memory_bytes)}
                                     </TableCell>
+                                    <TableCell className="w-24 px-2 py-0.5 text-right font-mono tabular-nums">
+                                        {formatRate(process.net_rx_bytes_per_sec ?? 0)}
+                                    </TableCell>
+                                    <TableCell className="w-24 px-2 py-0.5 text-right font-mono tabular-nums">
+                                        {formatRate(process.net_tx_bytes_per_sec ?? 0)}
+                                    </TableCell>
                                     <TableCell className="px-2 py-0.5 text-right font-mono text-muted-foreground">
                                         {process.threads}
                                     </TableCell>
                                     <TableCell className="px-2 py-0.5 text-right font-mono text-muted-foreground">
                                         {formatAge(process.started_at, sampledAt)}
                                     </TableCell>
-                                    <TableCell className="max-w-0 truncate px-2 py-0.5" title={process.command}>
+                                    <TableCell
+                                        className="max-w-0 truncate px-2 py-0.5"
+                                        // argv is whatever the process chose to
+                                        // call itself; the exe link is the
+                                        // kernel's own record, so both are shown.
+                                        title={
+                                            process.exe_path
+                                                ? `${process.command}\n${process.exe_path}${process.exe_deleted ? " (deleted)" : ""}`
+                                                : process.command
+                                        }
+                                    >
+                                        <ExeWarning process={process} />
                                         {process.command}
                                     </TableCell>
                                     <TableCell className="px-1 py-0.5">

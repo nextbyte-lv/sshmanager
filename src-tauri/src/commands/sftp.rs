@@ -510,9 +510,15 @@ pub(crate) fn session_ssh(state: &AppState, session_id: &str) -> Result<(Arc<rus
     Ok((session.ssh.clone(), session.connection_id.clone()))
 }
 
-// Runs one already-quoted command line under sudo on the session's connection.
+// Runs one already-quoted command line under sudo and hands back what it printed,
+// leaving the caller to judge the exit status — some commands (`ss` on a host where
+// it cannot name every process) exit nonzero and still produce the output wanted.
 // `args` must have every interpolated path passed through `shell_quote`.
-pub(crate) async fn run_with_sudo(state: &AppState, session_id: &str, args: &str) -> Result<(), String> {
+pub(crate) async fn run_with_sudo_output(
+    state: &AppState,
+    session_id: &str,
+    args: &str,
+) -> Result<ssh::exec::ExecOutput, String> {
     let (ssh, connection_id) = session_ssh(state, session_id)?;
     let password = sudo_password(state, &connection_id);
 
@@ -527,8 +533,12 @@ pub(crate) async fn run_with_sudo(state: &AppState, session_id: &str, args: &str
     // sudo -S reads a *line*: without the terminator it sits waiting and then
     // reports that no password was provided.
     let stdin = password.map(|password| format!("{password}\n"));
-    let output = ssh::exec::run(&ssh, &command, stdin.as_deref()).await.map_err(|e| e.to_string())?;
+    ssh::exec::run(&ssh, &command, stdin.as_deref()).await.map_err(|e| e.to_string())
+}
 
+/// The same, for the callers that only care whether it worked.
+pub(crate) async fn run_with_sudo(state: &AppState, session_id: &str, args: &str) -> Result<(), String> {
+    let output = run_with_sudo_output(state, session_id, args).await?;
     if output.status != 0 {
         return Err(last_error_line(&output.stderr).unwrap_or("sudo refused the operation").to_string());
     }

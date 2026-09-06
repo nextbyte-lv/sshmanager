@@ -54,6 +54,9 @@ pub struct WatchedFile {
 pub struct MonitorState {
     pub previous: Option<(Instant, RawSample)>,
     pub recent: Option<(Instant, Snapshot)>,
+    /// Privilege level the cached snapshot was taken at, so toggling elevation
+    /// cannot be answered from a cache that predates it.
+    pub recent_elevated: bool,
 }
 
 pub struct AppState {

@@ -478,3 +478,87 @@ the decimal above 100, which is not obvious from looking at `6.1 GB`.
 Worth checking the whole surface once one instance shows up: the same defect was
 in the CPU `usr/sys/io/steal` line and the memory `cache/buffers` line, both of
 which had shipped in the same panel.
+
+## `/proc/<pid>/net/dev` is per network *namespace*, not per process
+
+Building per-process network usage, this file is the obvious answer and the wrong
+one. It exists under every pid and holds byte counters that advance, so a
+per-process reader built on it produces numbers that look completely credible —
+and every process in the root namespace reports the *same host-wide totals*. The
+bug would be invisible on a single-process test and nonsense in production.
+
+There is no per-process byte counter in `/proc` at all. The real path joins two
+different sources:
+- **attribution** from socket inodes: `/proc/<pid>/fd/*` links point at
+  `socket:[inode]`, which is what `ss -p` resolves for you;
+- **bytes** from `tcp_info` per socket, which `ss -i` prints as `bytes_sent` /
+  `bytes_received`.
+
+`ss -H -tunaep -i state connected` gives all of it in one line-pair per socket,
+and diffing the counters between polls gives real throughput. Details that matter:
+- **Diff by `ino:` (from `-e`), never by pid or port.** Both of those are
+  recycled, so a closed socket and a new one that inherited its port would be
+  subtracted from each other.
+- **`ss` prints two lines per socket** — the socket, then a tab-indented
+  continuation carrying the `-i` counters. Fold the continuation into the row
+  above it.
+- **Only the first six fields are positional.** Everything after them is
+  `name:value` or `name=value`, and it has to be looked up by name: a process name
+  can contain spaces, and which tags are present varies by kernel and socket type.
+  `bytes_acked` sits right next to `bytes_sent`, so match the whole tag.
+- **`state connected` is worth the typing.** It drops listeners and TIME_WAIT,
+  neither of which carries bytes, and on a busy server that is most of the table.
+- **It is TCP only.** `tcp_info` has no UDP equivalent, so a UDP socket can be
+  listed but never measured — say so in the UI instead of showing it as 0 B/s.
+- **Sockets that open and close between two polls are never counted.** Their bytes
+  were real; no baseline ever saw them. Closing that gap means packet capture
+  (what nethogs does), i.e. root plus a sniffer.
+
+**Rule:** when a per-entity metric has no per-entity counter, find out what the
+kernel actually attributes it to (here: sockets) and aggregate up. And be
+suspicious of any `/proc/<pid>/` file that seems to answer a question too easily —
+several of them are namespace- or system-wide views that merely live under a pid.
+
+## The privileged half of a remote lookup cannot also go on stdin
+
+`/proc/<pid>/exe` and socket-to-process attribution both need root for anything the
+login user does not own — `ls -l /proc/1/exe` as a normal user is
+`cannot read symbolic link: Permission denied`, and unprivileged `ss -p` names only
+your own sockets. Which is exactly backwards from what someone hunting a rogue
+process needs.
+
+The collision: this project sends its collector script on the exec channel's
+**stdin** precisely to keep it away from the login shell's parsing (see the lesson
+above), but `sudo -S` reads the *password* from stdin. One channel, two claimants.
+So the elevated half has to travel as a command line after all, and the
+login-shell hazards come back with it.
+
+**Rule:** keep the privileged fragment small enough to audit, and keep it free of
+the three things single-quoting does not protect under fish and csh — backslashes,
+a bare `!`, and newlines. `monitor.rs`'s `PRIVILEGED_COMMAND` is one line of plain
+words for that reason, with a unit-adjacent check in the verification script
+asserting those characters never appear. Anything needing an awk program stays in
+the stdin script and gets its output parsed into the same shape, so one parser
+serves both paths.
+
+Also: give each privileged command its own `2>/dev/null`. `ls -l /proc/*/exe`
+complains about every link it cannot read, and that noise would otherwise be
+reported back as the "reason" a run that actually succeeded had failed.
+
+## A stronger signal than a process name: the exe link the process did not choose
+
+`argv` is whatever a process decided to call itself, so a command line is the one
+piece of process metadata an intruder controls for free. `/proc/<pid>/exe` is the
+kernel's own record and cannot be forged from inside the process. Two things fall
+out of reading it, both cheap — one `ls -l /proc/[0-9]*/exe` covers every pid on
+the host in about a millisecond:
+
+- Linux appends **` (deleted)`** to the target once the binary is unlinked, so a
+  running process whose file no longer exists announces itself. Ordinary software
+  is replaced by a package manager, not deleted out from under itself.
+- The **real directory** shows through, so a binary running from `/tmp`,
+  `/dev/shm` or `/var/tmp` is visible even when its command line claims otherwise.
+
+**Rule:** when surfacing "does this look wrong", prefer the fields the subject
+cannot write. Cross-check the claimed identity (`comm`, `argv`) against the
+kernel's (`exe`, `starttime`, uid) rather than displaying only the claim.

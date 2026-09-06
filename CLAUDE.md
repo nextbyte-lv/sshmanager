@@ -137,6 +137,17 @@ both reinterpret characters inside single quotes that the script's awk depends o
 Exit status is ignored (`cat` over `/proc/[0-9]*/stat` exits nonzero whenever a pid
 vanished mid-read); the sentinel is the completeness check.
 
+Per-process network has no counter in `/proc` — and `/proc/<pid>/net/dev` is a
+trap, being per network *namespace*. It is joined from two halves of `ss`: the
+socket inode (`-e`) as the only key stable across polls, and tcp_info's byte
+counters (`-i`), summed onto the pid from `-p`. Attributing another user's socket,
+and reading another user's `/proc/<pid>/exe`, both need root, so both sit behind
+one opt-in `elevated` flag on `monitor_sample`, which re-runs just those two
+lookups under sudo. That fragment has to travel as a *command line* — stdin is
+already carrying the sudo password — so `monitor::PRIVILEGED_COMMAND` is kept free
+of backslashes, `!` and newlines, the three things single-quoting does not survive
+under fish and csh.
+
 Every interesting figure is a **counter delta**, so `AppState.monitor` keeps the
 previous `RawSample` per session id behind an `Arc<tokio::sync::Mutex<..>>` (async,
 because it is held across the collection await) and `monitor::diff` subtracts. That

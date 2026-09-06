@@ -75,6 +75,34 @@ export interface Process {
   started_at: number | null;
   /** `starttime` in clock ticks, passed back to a kill so it can prove identity. */
   start_ticks: number;
+  /** Summed over this process's sockets. TCP only; null until there are two samples. */
+  net_rx_bytes_per_sec: number | null;
+  net_tx_bytes_per_sec: number | null;
+  /**
+   * What the kernel says is running, as opposed to what argv claims. Null for a
+   * kernel thread, and for another user's process unless the lookup was elevated.
+   */
+  exe_path: string | null;
+  /** The binary was unlinked after the process started. */
+  exe_deleted: boolean;
+  /** The binary lives in a world-writable directory. */
+  exe_suspicious: boolean;
+}
+
+export type PeerScope = "loopback" | "private" | "public" | "unspecified";
+
+export interface Connection {
+  protocol: string;
+  state: string;
+  local: string;
+  peer: string;
+  peer_scope: PeerScope;
+  pid: number | null;
+  /** Null when the socket belongs to another user and the lookup was not elevated. */
+  process: string | null;
+  uid: number | null;
+  rx_bytes_per_sec: number | null;
+  tx_bytes_per_sec: number | null;
 }
 
 export interface Snapshot {
@@ -90,6 +118,9 @@ export interface Snapshot {
   network: NetInterface[];
   disks: DiskIo[];
   processes: Process[];
+  connections: Connection[];
+  /** Connections whose owning process could not be named — needs root. */
+  unattributed_connections: number;
   /** Reasons a number on screen may not mean what it appears to. */
   warnings: string[];
   measuring: boolean;

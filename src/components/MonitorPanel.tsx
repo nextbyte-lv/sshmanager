@@ -1,7 +1,8 @@
-import { AlertTriangle, Maximize2, Minimize2, RefreshCw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Maximize2, Minimize2, RefreshCw, Shield, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ConnectionsTable } from "@/components/monitor/ConnectionsTable";
 import { MonitorStats, type StatHistory } from "@/components/monitor/MonitorStats";
 import { PortsTable } from "@/components/monitor/PortsTable";
 import { ProcessTable, type CpuScale } from "@/components/monitor/ProcessTable";
@@ -71,7 +72,11 @@ export function MonitorPanel({
     const [intervalMs, setIntervalMs] = useState(2000);
     const [refreshKey, setRefreshKey] = useState(0);
 
-    const [tab, setTab] = useState<"processes" | "ports">("processes");
+    const [tab, setTab] = useState<"processes" | "connections" | "ports">("processes");
+    // Off by default: attributing other users' sockets and reading their
+    // /proc/<pid>/exe both need root, and nobody wants a sudo entry in the
+    // server's auth log every two seconds unless they asked for one.
+    const [elevated, setElevated] = useState(false);
     const [filter, setFilter] = useState("");
     const [sortColumn, setSortColumn] = useState<SortColumn>("cpu");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -134,7 +139,7 @@ export function MonitorPanel({
             }
             setPollPaused(false);
             try {
-                const next = await monitorSample(sessionId);
+                const next = await monitorSample(sessionId, elevated);
                 if (cancelled) return;
                 applySnapshot(next);
                 setListError(null);
@@ -151,7 +156,7 @@ export function MonitorPanel({
             cancelled = true;
             if (timer !== undefined) window.clearTimeout(timer);
         };
-    }, [sessionId, intervalMs, refreshKey, applySnapshot]);
+    }, [sessionId, intervalMs, refreshKey, elevated, applySnapshot]);
 
     const loadPorts = useCallback(async () => {
         setPortsError(null);
@@ -262,6 +267,16 @@ export function MonitorPanel({
                 </Button>
                 <Button
                     size="xs"
+                    variant={tab === "connections" ? "secondary" : "ghost"}
+                    onClick={() => setTab("connections")}
+                >
+                    Connections
+                    {snapshot && snapshot.connections.length > 0 && (
+                        <span className="ml-1 text-muted-foreground">{snapshot.connections.length}</span>
+                    )}
+                </Button>
+                <Button
+                    size="xs"
                     variant={tab === "ports" ? "secondary" : "ghost"}
                     onClick={() => setTab("ports")}
                 >
@@ -315,6 +330,19 @@ export function MonitorPanel({
                             <Sparkles />
                         </Button>
                     )}
+
+                    <Button
+                        size="icon-xs"
+                        variant={elevated ? "secondary" : "ghost"}
+                        title={
+                            elevated
+                                ? "Naming other users' processes through sudo. Click to stop."
+                                : "Name the processes behind other users' connections, and read their executable paths. Needs sudo, and runs one extra command per refresh while it is on."
+                        }
+                        onClick={() => setElevated((on) => !on)}
+                    >
+                        <Shield />
+                    </Button>
 
                     <Select value={String(intervalMs)} onValueChange={(value) => setIntervalMs(Number(value))}>
                         <SelectTrigger className="h-6 w-24 text-xs">
@@ -379,7 +407,14 @@ export function MonitorPanel({
                         <MonitorStats snapshot={snapshot} history={history} />
                     </div>
                     <div className="min-h-0 flex-1">
-                        {tab === "processes" ? (
+                        {tab === "connections" ? (
+                            <ConnectionsTable
+                                connections={snapshot.connections}
+                                unattributed={snapshot.unattributed_connections}
+                                elevated={elevated}
+                                measuring={snapshot.measuring}
+                            />
+                        ) : tab === "processes" ? (
                             <ProcessTable
                                 rows={visible}
                                 total={snapshot.process_count}

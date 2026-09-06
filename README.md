@@ -15,8 +15,13 @@ same SSH connection as its terminal (no second login), and a per-pane remote
 task manager docked below the terminal on that same connection -- CPU (model,
 per-core load, steal, iowait), RAM/swap, filesystem usage, network and disk
 throughput, listening ports, and a sortable process list with true
-instantaneous CPU% that can signal a process (escalating through sudo when it
-is not yours). Rows that move or appear flash so a refresh is readable at a
+instantaneous CPU% and per-process network throughput, which can signal a
+process (escalating through sudo when it is not yours). A connections view
+lists every established socket with the process behind it, flagging peers out
+on the public internet, and processes running from a world-writable directory
+or from a binary that has since been deleted are marked -- the fields a program
+cannot forge about itself. Naming another user's processes needs root, so that
+is one opt-in button rather than sudo on every refresh. Rows that move or appear flash so a refresh is readable at a
 glance. The monitor reads Linux `/proc`; on any other system it says so rather
 than showing numbers that would be quietly wrong. Packaged into a standalone
 Windows installer (see below). Still ahead: auto-reconnect with backoff.
