@@ -507,3 +507,156 @@ Limits, all stated in the UI rather than papered over:
       where sudo needs a password, confirm attribution appears; then on a
       key-auth connection with no passwordless sudo, confirm it degrades to the
       warning instead of sending the key passphrase anywhere
+
+---
+
+## Phase: physical memory modules (DDR type, size, speed, part number)
+
+The panel's Memory card reads `/proc/meminfo`, which knows how much RAM the host
+has and nothing about the sticks it is made of. Module type/speed/part number is
+SMBIOS/DMI data, so it needs a different source, a different privilege level, and
+— being static hardware — a different cadence from the 2-second poll.
+
+- [x] `ssh/dimms.sh` — one-shot collector: EDAC sysfs (unprivileged, but only
+      present on ECC-capable hardware) and the raw DMI table via
+      `od -An -v -tx1`, in one round trip
+- [x] `ssh/dimms.rs` — SMBIOS type 17 (Memory Device) and type 16 (Physical
+      Memory Array) parsed in Rust, so `dmidecode` need not be installed;
+      `parse`/`merge_privileged`/`inventory` in the shape `monitor.rs` uses
+- [x] `monitor.rs` — `split_sections` to `pub(crate)`, one section splitter for
+      both collectors
+- [x] `commands/monitor.rs` — `monitor_memory_modules`: unprivileged first, and
+      escalate for the DMI table only when nothing came back, so a host that
+      answers via EDAC never triggers a sudo entry
+- [x] Frontend — a "Modules" button on the Memory card, a summary line once
+      read, and a dialog with the per-slot table
+- [x] Verify: parser tests against a captured real DMI table; collector run
+      against WSL
+
+
+### Review
+
+`/proc` has no DIMM inventory of any kind, so this reads the firmware's own
+SMBIOS structure table (`/sys/firmware/dmi/tables/DMI`) and parses it in Rust
+rather than shelling out to `dmidecode`, which is missing from most minimal
+container and cloud images. `od -An -v -tx1` carries the bytes back: POSIX,
+in busybox, and no decoder crate for 5 kB. `-v` is not optional — 64 zero bytes
+come back as 17 tokens without it and 64 with, and a memory table is mostly
+padding.
+
+Proven rather than asserted: `ssh/testdata/dmi-ddr5.txt` is a real SMBIOS 3.6
+table from a live machine, and it is **byte-identical to what GNU `od` on a real
+Linux host prints for those bytes** (checked by feeding the table back through
+WSL's own `od` and diffing). So the parser tests run on exactly the stdout the
+collector produces. Ground truth for the fixture — 4 × 16 GB Kingston DDR5-5600,
+non-ECC, 128 GB maximum — came from the same machine's `Win32_PhysicalMemory`,
+independently of the code under test. Serial numbers and asset tags were
+overwritten with `X` of identical length before committing, so every offset in
+the table is still the one the firmware wrote, and a test asserts neither field
+reaches the struct.
+
+Design decisions worth keeping:
+- **Not on the poll.** DIMMs do not change while a host is up, and the table is
+  mode 0400. Reading it on panel open would spend a sudo entry on someone who
+  came for a CPU graph, so it is one button and the answer is kept until the
+  session id changes.
+- **Escalate only when both sources came back empty.** The collector tries EDAC
+  sysfs and the DMI table in one round trip; a host that answered either way
+  never triggers sudo.
+- **Field reads are bounded by each structure's own `length` byte**, not by the
+  newest spec's layout — a pre-2.7 table simply stops before `configured speed`
+  exists. There is a test that cuts the real modules back to SMBIOS 2.3 and
+  asserts fields go missing rather than bytes being read past the end.
+
+Limits, stated in the UI rather than papered over:
+- **A VM usually publishes nothing useful.** QEMU/KVM, VMware and the cloud
+  hypervisors synthesise a single fake device with type `Other`/`RAM` and no
+  manufacturer. The failure message says so instead of implying a broken read.
+- **EDAC is the only unprivileged source and it is much poorer** — type and size,
+  no speed, manufacturer or part number — and it exists only where an EDAC driver
+  bound to the memory controller, i.e. ECC-capable hardware. When it is what
+  answered, the dialog says which source it came from.
+- Serial numbers are deliberately not read. They identify the machine and answer
+  nothing anyone opens this panel for.
+
+- [ ] Live check once a real host is available: a bare-metal Linux box with
+      passworded sudo (expect the full table) and a VPS (expect the "publishes no
+      memory module table" message, not a spinner)
+
+---
+
+# Upload: one toolbar button, and a real progress denominator
+
+Two complaints, one about the toolbar and one about the progress line, both
+landing on the same code path.
+
+## One upload button instead of two
+
+The backend never had this split — `sftp::upload_path` takes any local path and
+recurses if it is a directory, so files and folders have always been one
+operation. The two buttons existed because the **OS file dialog** is the thing
+that cannot do both: the Windows common dialog is either a multi-select file
+picker or a folder picker, and Tauri's `open({ directory })` is a straight
+passthrough. Drag-and-drop from Explorer would cover both in one gesture, but it
+is deliberately disabled (`dragDropEnabled: false`, needed for mosaic pane-drag).
+
+So the merge is one *button* opening a dropdown, not one dialog.
+
+- [x] Collapse the two toolbar buttons into one `Upload` trigger with a
+      `DropdownMenu` — "Files…" / "Folder…", each calling `pickAndUpload`
+
+## "12 / 340 files" instead of "1 uploaded"
+
+`upload_path` discovers files lazily off a stack, so nothing knows the total
+until the walk is over. The panel could only count events after the fact: no
+denominator, and a bar measuring the *current file's* bytes that restarted on
+every file — useless for a folder, and the reason speed/ETA jittered.
+
+The denominator has to be established before the transfer, and it has to cover
+the **whole selection** rather than one path at a time: the frontend calls
+`sftpUpload` once per selected path, so a per-path total would grow mid-transfer.
+Hence one local-only pre-scan across every selected path, not a `Scanned` event
+inside `upload_path`.
+
+- [x] `ssh/sftp.rs`: `scan_local_paths` — local `tokio::fs` walk returning
+      `{ files, bytes }`, following symlinks exactly as `upload_path` does so the
+      count it produces is the count the upload will reach
+- [x] `UploadEvent::Skipped` carries `total_bytes` (`local_size` is already in
+      hand) — without it a skipped file freezes the overall bar
+- [x] `commands/sftp.rs`: `sftp_scan_local` command (no SSH involved)
+- [x] `SftpPanel.tsx`: scan once up front, then track overall bytes as
+      `completed + current file` and render `n / total files`; speed and ETA move
+      onto the overall figure
+
+Failed subtrees leave the bar short of 100% on purpose — the summary line already
+names the failures, and inventing progress for files that never transferred would
+be the lie.
+
+## Review
+
+Done and checked: `cargo test` 47 passed (4 of them new, on the scan), the
+frontend typechecks, and `npm run build` is clean. Not yet run against a live
+host — that is the one step left.
+
+What the change actually turned on:
+- The upload button is one `DropdownMenu` ("Files…" / "Folder…"). `disabled` sits
+  on the *Trigger*, not on the `Button` inside `render` — base-ui's Trigger has a
+  `disabled` prop of its own, and letting the render target set it instead is how
+  a menu stays openable mid-transfer.
+- The bar measures the whole selection instead of the file in flight. Progress is
+  `baseBytes + fileBytes`, where a file's own size moves into `baseBytes` only
+  when that file ends. `inFlightBytes` is null between files precisely because a
+  `file_error` can name a *directory* — a failed `create_dir` or `read_dir` — and
+  without the null that would bank the previous file's size twice.
+- Speed and ETA are now sampled over the whole transfer. The old sample reset on
+  every `started`, which is why a folder of small files showed a rate that never
+  settled: each file threw the estimate away just as it was becoming meaningful.
+- Tests pin the invariant that matters, which is not "the scan works" but "the
+  scan counts what the upload will move": directories excluded, multiple roots
+  summed, an unstattable root left out of the total the same way `upload_path`
+  puts it under `failed`. Any drift there is a bar that sticks at 94%.
+
+Deliberately left alone: `upload_path` still walks lazily and still runs once per
+picked path. The scan is a second, local-only walk rather than a `Scanned` event
+from inside the transfer — one command per path would have emitted one total per
+path, and a denominator that climbs while the bar fills is worse than none.

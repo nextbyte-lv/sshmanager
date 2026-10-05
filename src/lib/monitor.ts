@@ -2,7 +2,7 @@
 // decides which rows flash on a refresh. Kept out of the components so the flash
 // rule in particular lives in one readable place instead of inside a render.
 
-import type { Process } from "@/types/monitor";
+import type { MemoryInventory, Process } from "@/types/monitor";
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 
@@ -142,4 +142,33 @@ export function movedPids(previousOrder: number[], nextOrder: number[]): Set<num
 export function pushHistory(history: number[], value: number, limit: number): number[] {
   const next = [...history, value];
   return next.length > limit ? next.slice(next.length - limit) : next;
+}
+
+/**
+ * The one-line form of a memory inventory, for the Memory card: `4 x 16 GB
+ * DDR5-5600`, or `2 x 16 GB DDR4-3200 + 2 x 8 GB DDR4-2666` on a mismatched
+ * board — which is worth seeing, because a mismatched pair is why the whole bank
+ * clocked down.
+ *
+ * Grouping is on the configured speed rather than the rated one: two sticks rated
+ * differently but running at the same clock are one line here, and the per-slot
+ * table has the detail.
+ */
+export function describeModules(inventory: MemoryInventory): string {
+  if (inventory.modules.length === 0) return "no modules reported";
+
+  const groups = new Map<string, number>();
+  for (const module of inventory.modules) {
+    const speed = module.configured_mts ?? module.speed_mts;
+    const label = `${formatBytes(module.size_bytes, 0)} ${module.kind}${speed ? `-${speed}` : ""}`;
+    groups.set(label, (groups.get(label) ?? 0) + 1);
+  }
+
+  // Past two distinct kinds the enumeration is longer than the card is wide, and
+  // the breakdown is one click away.
+  if (groups.size > 2) {
+    const total = inventory.modules.reduce((sum, module) => sum + module.size_bytes, 0);
+    return `${formatBytes(total, 0)} in ${inventory.modules.length} modules`;
+  }
+  return [...groups].map(([label, count]) => `${count} × ${label}`).join(" + ");
 }

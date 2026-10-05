@@ -5,6 +5,7 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::ssh::client::Client;
+use crate::ssh::dimms::{self, MemoryInventory};
 use crate::ssh::monitor::{self, ListeningSocket, RawSample, Snapshot};
 use crate::ssh::{self};
 use crate::state::{AppState, MonitorState};
@@ -234,4 +235,61 @@ pub async fn monitor_ports(
         .or_else(|| last_error_line(&ss.stderr))
         .unwrap_or("neither ss nor netstat is available on this host")
         .to_string())
+}
+
+/// The physical memory modules — DDR generation, size, speed and part number per
+/// slot. Static hardware, so this is a one-shot on demand rather than part of the
+/// poll: the frontend asks once and keeps the answer.
+///
+/// Two sources, cheapest first. The collector reads EDAC's sysfs (unprivileged,
+/// but only present on ECC-capable hardware) and attempts the SMBIOS table in the
+/// same round trip — the latter is mode 0400, so it only succeeds when the login
+/// user is root. Escalation happens *only* when both came back empty, so a host
+/// that answered without it never triggers a sudo entry for a panel someone
+/// merely opened.
+#[tauri::command]
+pub async fn monitor_memory_modules(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<MemoryInventory, String> {
+    let (ssh, _) = session_ssh(&state, &session_id)?;
+    let mut raw = dimms::collect(&ssh).await.map_err(|e| e.to_string())?;
+
+    let mut escalation_failure = None;
+    if raw.is_empty() {
+        let args = format!("sh -c {}", shell_quote(dimms::PRIVILEGED_COMMAND));
+        match run_with_sudo_output(&state, &session_id, &args).await {
+            // Judged on the output rather than the status, the same as the
+            // sample's privileged half: what matters is whether a table came back.
+            Ok(output) if dimms::merge_privileged(&mut raw, &output.stdout) => {}
+            Ok(output) => {
+                escalation_failure = Some(
+                    last_error_line(&output.stderr).unwrap_or("sudo produced no output").to_string(),
+                );
+            }
+            Err(reason) => escalation_failure = Some(reason),
+        }
+    }
+
+    let mut inventory = dimms::inventory(&raw);
+    if inventory.source.is_none() {
+        // Nothing to show, and the reason matters: a refused sudo is fixable, a
+        // hypervisor that publishes no memory table is not.
+        return Err(match escalation_failure {
+            Some(reason) => format!(
+                "the memory module table is root-only and sudo could not read it: {reason}"
+            ),
+            None => "this host publishes no memory module table — virtual machines \
+                     usually don't, and EDAC is only present on ECC hardware"
+                .into(),
+        });
+    }
+    if inventory.source == Some("edac") {
+        inventory.warnings.push(
+            "read from EDAC, which reports type and size only; manufacturer, speed and part \
+             number need the root-only SMBIOS table"
+                .into(),
+        );
+    }
+    Ok(inventory)
 }

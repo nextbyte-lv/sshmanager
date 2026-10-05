@@ -534,7 +534,10 @@ pub fn merge_privileged(sample: &mut RawSample, stdout: &str) -> bool {
     true
 }
 
-fn split_sections(stdout: &str) -> HashMap<&str, &str> {
+/// Splits a collector's stdout on its `@@name` markers. Shared with `ssh/dimms.rs`,
+/// which uses the same `@@section` / `@@end`-sentinel contract for the same
+/// reason: a section that fails must cost one section, not the whole read.
+pub(crate) fn split_sections(stdout: &str) -> HashMap<&str, &str> {
     let mut sections = HashMap::new();
     let mut name: Option<&str> = None;
     let mut start = 0usize;

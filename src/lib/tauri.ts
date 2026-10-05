@@ -8,11 +8,13 @@ import type {
 import type {
   KillSignal,
   ListeningSocket,
+  MemoryInventory,
   Snapshot,
 } from "@/types/monitor";
 import type {
   DirSize,
   FileSyncEvent,
+  LocalScan,
   SftpEntry,
   UploadEvent,
 } from "@/types/sftp";
@@ -100,6 +102,11 @@ export function sftpDownload(sessionId: string, remotePath: string, localPath: s
   return invoke<void>("sftp_download", { sessionId, remotePath, localPath });
 }
 
+/** Counts the files and bytes an upload of `localPaths` would transfer. Local only. */
+export function sftpScanLocal(localPaths: string[]) {
+  return invoke<LocalScan>("sftp_scan_local", { localPaths });
+}
+
 export function sftpUpload(
   sessionId: string,
   localPath: string,
@@ -152,4 +159,13 @@ export function monitorKill(sessionId: string, pid: number, startTicks: number, 
 
 export function monitorPorts(sessionId: string) {
   return invoke<ListeningSocket[]>("monitor_ports", { sessionId });
+}
+
+/**
+ * Physical memory modules. Static hardware, so this is fetched once on demand
+ * rather than polled — and it escalates to sudo on its own when the host's
+ * SMBIOS table is the only source, so it must never be called speculatively.
+ */
+export function monitorMemoryModules(sessionId: string) {
+  return invoke<MemoryInventory>("monitor_memory_modules", { sessionId });
 }

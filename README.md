@@ -22,7 +22,11 @@ on the public internet, and processes running from a world-writable directory
 or from a binary that has since been deleted are marked -- the fields a program
 cannot forge about itself. Naming another user's processes needs root, so that
 is one opt-in button rather than sudo on every refresh. Rows that move or appear flash so a refresh is readable at a
-glance. The monitor reads Linux `/proc`; on any other system it says so rather
+glance. The RAM card can also name the physical modules -- DDR generation,
+size, rated vs configured speed, manufacturer and part number per slot -- by
+parsing the host's SMBIOS table itself, so `dmidecode` need not be installed;
+that table is root-only, so it is read on an explicit click rather than on the
+poll. The monitor reads Linux `/proc`; on any other system it says so rather
 than showing numbers that would be quietly wrong. Packaged into a standalone
 Windows installer (see below). Still ahead: auto-reconnect with backoff.
 

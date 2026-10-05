@@ -45,7 +45,7 @@ pub struct DirSize {
 pub enum UploadEvent {
     Started { path: String, total_bytes: u64 },
     Progress { path: String, bytes_done: u64, total_bytes: u64 },
-    Skipped { path: String },
+    Skipped { path: String, total_bytes: u64 },
     FileDone { path: String },
     FileError { path: String, message: String },
     Done { uploaded: u32, skipped: u32, failed: u32 },
@@ -171,7 +171,7 @@ pub(crate) async fn upload_file(
     if let Some(local_mtime) = local_mtime {
         if let Ok(remote_meta) = sftp.metadata(remote_path).await {
             if remote_meta.size == Some(local_size) && remote_meta.mtime == Some(local_mtime) {
-                on_event(UploadEvent::Skipped { path: remote_path.to_string() });
+                on_event(UploadEvent::Skipped { path: remote_path.to_string(), total_bytes: local_size });
                 return Ok(false);
             }
         }
@@ -292,6 +292,47 @@ where
     Ok(())
 }
 
+// What an upload is about to move, counted before it starts. `upload_path`
+// discovers files lazily off a stack, so it can only ever report what it has
+// already done — there is no denominator to show a progress bar until someone
+// walks the tree ahead of it, which is this.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LocalScan {
+    pub files: u32,
+    pub bytes: u64,
+}
+
+// Counts the files an `upload_path` over these same roots would transfer, and
+// their total size. Purely local — no SFTP session, no network — so it costs a
+// metadata walk and nothing else.
+//
+// The traversal deliberately mirrors `upload_path`'s exactly: same stack, same
+// `tokio::fs::metadata` (which follows symlinks, as the upload does), and the
+// same treatment of an unreadable entry — skipped here, counted as a failure
+// there, so neither one contributes to the total. A count produced by a
+// different walk than the one that runs would be a progress bar that stops at
+// 94% or claims 103%.
+pub async fn scan_local_paths(roots: &[PathBuf]) -> LocalScan {
+    let mut stack: Vec<PathBuf> = roots.to_vec();
+    let mut scan = LocalScan::default();
+
+    while let Some(local) = stack.pop() {
+        let Ok(meta) = tokio::fs::metadata(&local).await else { continue };
+
+        if meta.is_dir() {
+            let Ok(mut entries) = tokio::fs::read_dir(&local).await else { continue };
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                stack.push(entry.path());
+            }
+        } else {
+            scan.files += 1;
+            scan.bytes += meta.len();
+        }
+    }
+
+    scan
+}
+
 pub async fn make_dir(sftp: &SftpSession, path: &str) -> Result<(), SshError> {
     sftp.create_dir(path).await.map_err(SshError::Sftp)
 }
@@ -405,4 +446,84 @@ pub async fn set_mode_recursive(sftp: &SftpSession, root: &str, mode: u32) -> Re
         set_mode(sftp, dir, mode).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    // A temp tree that removes itself, so a failing assert cannot leave litter in
+    // %TEMP% for the next run to trip over.
+    struct TempTree(PathBuf);
+
+    impl TempTree {
+        fn new() -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("sshmanager-scan-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            TempTree(dir)
+        }
+
+        fn file(&self, rel: &str, bytes: usize) -> PathBuf {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, vec![b'x'; bytes]).unwrap();
+            path
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn counts_every_file_in_the_tree_and_no_directories() {
+        let tree = TempTree::new();
+        tree.file("top.bin", 10);
+        tree.file("sub/one.bin", 20);
+        tree.file("sub/deeper/two.bin", 30);
+        std::fs::create_dir_all(tree.0.join("sub/empty")).unwrap();
+
+        let scan = scan_local_paths(&[tree.0.clone()]).await;
+
+        // Four directories were walked (root, sub, deeper, empty) and none of them
+        // counts: the denominator has to match the files `upload_path` transfers,
+        // and a directory is a `create_dir`, not a transfer.
+        assert_eq!(scan.files, 3);
+        assert_eq!(scan.bytes, 60);
+    }
+
+    #[tokio::test]
+    async fn sums_across_every_selected_root() {
+        let tree = TempTree::new();
+        let a = tree.file("a.bin", 5);
+        let b = tree.file("dir/b.bin", 7);
+
+        let scan = scan_local_paths(&[a, b.parent().unwrap().to_path_buf()]).await;
+
+        assert_eq!(scan.files, 2);
+        assert_eq!(scan.bytes, 12);
+    }
+
+    #[tokio::test]
+    async fn an_empty_selection_is_zero_rather_than_a_panic() {
+        assert_eq!(scan_local_paths(&[]).await.files, 0);
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_root_is_skipped_the_way_the_upload_fails_it() {
+        let tree = TempTree::new();
+        tree.file("real.bin", 4);
+
+        // `upload_path` turns a root it cannot stat into a `FileError` and counts
+        // it under `failed`, never under `uploaded` — so it must not be in the
+        // total either, or the bar would stop one file short of full.
+        let scan =
+            scan_local_paths(&[tree.0.join("real.bin"), tree.0.join("gone.bin")]).await;
+
+        assert_eq!(scan.files, 1);
+        assert_eq!(scan.bytes, 4);
+    }
 }

@@ -18,9 +18,15 @@ import {
     type SortColumn,
     type SortDirection,
 } from "@/lib/monitor";
-import { monitorKill, monitorPorts, monitorSample } from "@/lib/tauri";
+import { monitorKill, monitorMemoryModules, monitorPorts, monitorSample } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import type { KillSignal, ListeningSocket, Process, Snapshot } from "@/types/monitor";
+import type {
+    KillSignal,
+    ListeningSocket,
+    MemoryInventory,
+    Process,
+    Snapshot,
+} from "@/types/monitor";
 
 /** Samples kept behind each sparkline. At the 2s default, two minutes of history. */
 const HISTORY_LENGTH = 60;
@@ -88,6 +94,11 @@ export function MonitorPanel({
     const [ports, setPorts] = useState<ListeningSocket[] | null>(null);
     const [portsError, setPortsError] = useState<string | null>(null);
     const [killTarget, setKillTarget] = useState<{ process: Process; signal: KillSignal } | null>(null);
+
+    // Physical memory modules, read on demand rather than sampled.
+    const [modules, setModules] = useState<MemoryInventory | null>(null);
+    const [modulesLoading, setModulesLoading] = useState(false);
+    const [modulesError, setModulesError] = useState<string | null>(null);
 
     const applySnapshot = useCallback((next: Snapshot) => {
         setSnapshot(next);
@@ -172,6 +183,29 @@ export function MonitorPanel({
     useEffect(() => {
         if (tab === "ports") void loadPorts();
     }, [tab, refreshKey, loadPorts]);
+
+    // Physical memory modules never change while the host is up, so unlike ports
+    // this is read once, on an explicit click, and kept — not refetched on the
+    // refresh button. The read escalates to sudo on hosts where SMBIOS is the only
+    // source, and repeating that on a timer would be indefensible.
+    const loadModules = useCallback(async () => {
+        setModulesError(null);
+        setModulesLoading(true);
+        try {
+            setModules(await monitorMemoryModules(sessionId));
+        } catch (error) {
+            setModulesError(String(error));
+        } finally {
+            setModulesLoading(false);
+        }
+    }, [sessionId]);
+
+    // A reconnect hands the pane a new session id, and it may well be a different
+    // host — the old machine's DIMMs must not stay on screen.
+    useEffect(() => {
+        setModules(null);
+        setModulesError(null);
+    }, [sessionId]);
 
     const rows = useMemo(() => {
         if (!snapshot) return [];
@@ -404,7 +438,14 @@ export function MonitorPanel({
             {snapshot && (
                 <>
                     <div className={cn("shrink-0 overflow-y-auto", maximized ? "max-h-72" : "max-h-52")}>
-                        <MonitorStats snapshot={snapshot} history={history} />
+                        <MonitorStats
+                            snapshot={snapshot}
+                            history={history}
+                            modules={modules}
+                            modulesLoading={modulesLoading}
+                            modulesError={modulesError}
+                            onReadModules={loadModules}
+                        />
                     </div>
                     <div className="min-h-0 flex-1">
                         {tab === "connections" ? (

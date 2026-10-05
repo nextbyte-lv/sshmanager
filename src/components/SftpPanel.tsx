@@ -47,21 +47,44 @@ import {
     sftpMkdir,
     sftpOpenFile,
     sftpRename,
+    sftpScanLocal,
     sftpSetMode,
     sftpUpload,
 } from "@/lib/tauri";
 import type { ConnectionProfile } from "@/types/connection";
 import type { DirSize, FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
 
+// Progress across the *whole* selection, not the file in flight. The totals come
+// from one `sftpScanLocal` before anything is sent; everything else is summed as
+// the events arrive, because the walk on the other side only ever reports the
+// file it is on.
 interface UploadProgress {
     currentPath: string;
-    bytesDone: number;
+    /** True until the pre-scan answers — totals are not yet meaningful. */
+    scanning: boolean;
+    /** Bytes of every file the walk has finished with: sent, skipped or failed. */
+    baseBytes: number;
+    /** Bytes transferred so far within the file in flight. */
+    fileBytes: number;
+    /**
+     * Size of the file in flight, or null when none is — held so that ending a
+     * file can move exactly its own size into `baseBytes`. A `file_error` can
+     * name a *directory*, which never had a `started`, and the null is what stops
+     * that from banking the previous file's size a second time.
+     */
+    inFlightBytes: number | null;
+    totalFiles: number;
     totalBytes: number;
     uploaded: number;
     skipped: number;
     failed: number;
     speedBps: number | null;
     etaSeconds: number | null;
+}
+
+/** Bytes moved across the whole selection so far. */
+function overallBytes(p: UploadProgress): number {
+    return p.baseBytes + p.fileBytes;
 }
 
 interface SftpPanelProps {
@@ -261,21 +284,24 @@ export function SftpPanel({
             if (!prev) return prev;
             switch (event.type) {
                 case "started":
-                    uploadSampleRef.current = { time: now, bytes: 0 };
                     return {
                         ...prev,
                         currentPath: event.path,
-                        bytesDone: 0,
-                        totalBytes: event.total_bytes,
-                        speedBps: null,
-                        etaSeconds: null,
+                        fileBytes: 0,
+                        inFlightBytes: event.total_bytes,
                     };
                 case "progress": {
+                    const next = {
+                        ...prev,
+                        currentPath: event.path,
+                        fileBytes: event.bytes_done,
+                    };
+                    const done = overallBytes(next);
                     const sample = uploadSampleRef.current;
                     let speedBps = prev.speedBps;
                     if (sample) {
                         const dtSeconds = (now - sample.time) / 1000;
-                        const dBytes = event.bytes_done - sample.bytes;
+                        const dBytes = done - sample.bytes;
                         // Throttle sampling so speed isn't recalculated from
                         // near-zero time deltas between rapid chunk events.
                         if (dtSeconds > 0.15 && dBytes >= 0) {
@@ -284,32 +310,43 @@ export function SftpPanel({
                                 speedBps === null
                                     ? instantSpeed
                                     : speedBps * 0.7 + instantSpeed * 0.3;
-                            uploadSampleRef.current = {
-                                time: now,
-                                bytes: event.bytes_done,
-                            };
+                            uploadSampleRef.current = { time: now, bytes: done };
                         }
                     }
-                    const remaining = event.total_bytes - event.bytes_done;
+                    // Measured against the whole selection, so a folder gets one
+                    // estimate that settles rather than one per file that never
+                    // outlives the file it was computed for.
+                    const remaining = Math.max(0, next.totalBytes - done);
                     const etaSeconds =
-                        speedBps && speedBps > 0
-                            ? remaining / speedBps
-                            : null;
+                        speedBps && speedBps > 0 ? remaining / speedBps : null;
+                    return { ...next, speedBps, etaSeconds };
+                }
+                case "skipped":
+                    // No `started` precedes a skip, so its size is on the event
+                    // itself — without it an unchanged file would freeze the bar
+                    // while the count moved on.
                     return {
                         ...prev,
                         currentPath: event.path,
-                        bytesDone: event.bytes_done,
-                        totalBytes: event.total_bytes,
-                        speedBps,
-                        etaSeconds,
+                        baseBytes: prev.baseBytes + event.total_bytes,
+                        skipped: prev.skipped + 1,
                     };
-                }
-                case "skipped":
-                    return { ...prev, skipped: prev.skipped + 1 };
                 case "file_done":
-                    return { ...prev, uploaded: prev.uploaded + 1 };
+                    return {
+                        ...prev,
+                        baseBytes: prev.baseBytes + (prev.inFlightBytes ?? 0),
+                        fileBytes: 0,
+                        inFlightBytes: null,
+                        uploaded: prev.uploaded + 1,
+                    };
                 case "file_error":
-                    return { ...prev, failed: prev.failed + 1 };
+                    return {
+                        ...prev,
+                        baseBytes: prev.baseBytes + (prev.inFlightBytes ?? 0),
+                        fileBytes: 0,
+                        inFlightBytes: null,
+                        failed: prev.failed + 1,
+                    };
                 case "done":
                     return prev;
             }
@@ -323,7 +360,11 @@ export function SftpPanel({
         setActionError(null);
         setUploadProgress({
             currentPath: "",
-            bytesDone: 0,
+            scanning: true,
+            baseBytes: 0,
+            fileBytes: 0,
+            inFlightBytes: null,
+            totalFiles: 0,
             totalBytes: 0,
             uploaded: 0,
             skipped: 0,
@@ -331,6 +372,33 @@ export function SftpPanel({
             speedBps: null,
             etaSeconds: null,
         });
+
+        // Counted before a byte moves, and over every picked path at once: the
+        // transfer below runs one command per path, so a total that arrived with
+        // each of them would climb while the bar was already filling. A local
+        // metadata walk that fails leaves the totals at zero, which the UI reads
+        // as "no denominator" and falls back to counting files.
+        let scan = { files: 0, bytes: 0 };
+        try {
+            scan = await sftpScanLocal(localPaths);
+        } catch {
+            // Nothing to report: the scan is only here to shape a progress bar,
+            // and whatever stopped it will stop the upload too, with a real error.
+        }
+        setUploadProgress((prev) =>
+            prev
+                ? {
+                      ...prev,
+                      scanning: false,
+                      totalFiles: scan.files,
+                      totalBytes: scan.bytes,
+                  }
+                : prev,
+        );
+        // Started here rather than on the first file, so the rate is measured over
+        // the whole transfer instead of restarting at every file boundary.
+        uploadSampleRef.current = { time: Date.now(), bytes: 0 };
+
         for (const localPath of localPaths) {
             const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
             try {
@@ -523,6 +591,44 @@ export function SftpPanel({
         }
     }
 
+    // Bytes are the honest measure — a thousand tiny files and one huge one are
+    // not the same job — but a selection that is all empty files has none to
+    // count, so the file tally stands in rather than a bar stuck at zero.
+    const uploadPercent = !uploadProgress
+        ? 0
+        : uploadProgress.totalBytes > 0
+          ? Math.min(
+                100,
+                Math.round(
+                    (overallBytes(uploadProgress) / uploadProgress.totalBytes) *
+                        100,
+                ),
+            )
+          : uploadProgress.totalFiles > 0
+            ? Math.round(
+                  ((uploadProgress.uploaded +
+                      uploadProgress.skipped +
+                      uploadProgress.failed) /
+                      uploadProgress.totalFiles) *
+                      100,
+              )
+            : 0;
+
+    // Only the outcomes worth naming. "0 skipped" was noise on every transfer that
+    // went fine, and the file tally above already says how far along it is.
+    const uploadSummary = !uploadProgress
+        ? ""
+        : [
+              uploadProgress.skipped > 0
+                  ? `${uploadProgress.skipped} skipped`
+                  : "",
+              uploadProgress.failed > 0
+                  ? `${uploadProgress.failed} failed`
+                  : "",
+          ]
+              .filter(Boolean)
+              .join(", ");
+
     // Folders in this listing with no size yet: what the toolbar button measures,
     // and what tells it whether there is anything left to measure.
     const unsizedFolders =
@@ -584,24 +690,43 @@ export function SftpPanel({
                 >
                     <FolderPlus />
                 </Button>
-                <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    title="Upload files"
-                    disabled={uploadProgress !== null}
-                    onClick={() => void pickAndUpload(false)}
-                >
-                    <Upload />
-                </Button>
-                <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    title="Upload folder"
-                    disabled={uploadProgress !== null}
-                    onClick={() => void pickAndUpload(true)}
-                >
-                    <FolderUp />
-                </Button>
+                {/*
+                    One button, two menu items. Uploading a file and uploading a
+                    folder are the same operation to the backend — `upload_path`
+                    recurses or doesn't — but the *picker* cannot be: the Windows
+                    common dialog chooses files or a directory, never both, and
+                    `open({ directory })` is a passthrough to it. So the choice has
+                    to be made before the dialog opens, and it may as well be made
+                    here instead of costing a second slot in a very narrow toolbar.
+                */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        disabled={uploadProgress !== null}
+                        render={
+                            <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                title="Upload"
+                            />
+                        }
+                    >
+                        <Upload />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        <DropdownMenuItem
+                            onClick={() => void pickAndUpload(false)}
+                        >
+                            <Upload />
+                            Files…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => void pickAndUpload(true)}
+                        >
+                            <FolderUp />
+                            Folder…
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                     size="icon-xs"
                     variant="ghost"
@@ -693,33 +818,40 @@ export function SftpPanel({
                 <div className="border-b border-border px-2 py-1 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0 flex-1 truncate">
-                            {uploadProgress.currentPath
-                                ? uploadProgress.currentPath.split("/").pop()
-                                : "Uploading…"}
+                            {uploadProgress.scanning
+                                ? "Scanning…"
+                                : uploadProgress.currentPath
+                                  ? uploadProgress.currentPath.split("/").pop()
+                                  : "Uploading…"}
                         </span>
-                        <span className="shrink-0">
-                            {uploadProgress.uploaded} uploaded,{" "}
-                            {uploadProgress.skipped} skipped
-                            {uploadProgress.failed > 0
-                                ? `, ${uploadProgress.failed} failed`
-                                : ""}
-                        </span>
+                        {uploadProgress.totalFiles > 0 && (
+                            <span className="shrink-0 tabular-nums">
+                                {uploadProgress.uploaded +
+                                    uploadProgress.skipped +
+                                    uploadProgress.failed}{" "}
+                                / {uploadProgress.totalFiles} files
+                            </span>
+                        )}
                     </div>
                     <div className="mt-1 h-1 w-full overflow-hidden rounded bg-muted">
                         <div
                             className="h-full bg-primary transition-[width]"
-                            style={{
-                                width:
-                                    uploadProgress.totalBytes > 0
-                                        ? `${Math.round((uploadProgress.bytesDone / uploadProgress.totalBytes) * 100)}%`
-                                        : "0%",
-                            }}
+                            style={{ width: `${uploadPercent}%` }}
                         />
                     </div>
+                    {/*
+                        Only rendered once it has something to say — both
+                        formatters return "" until a rate has been sampled, and an
+                        empty row would leave a gap in a panel this narrow.
+                    */}
                     {(uploadProgress.speedBps !== null ||
-                        uploadProgress.etaSeconds !== null) && (
+                        uploadProgress.etaSeconds !== null ||
+                        uploadSummary !== "") && (
                         <div className="mt-1 flex items-center justify-between gap-2">
                             <span>{formatSpeed(uploadProgress.speedBps)}</span>
+                            <span className="min-w-0 truncate">
+                                {uploadSummary}
+                            </span>
                             <span>{formatEta(uploadProgress.etaSeconds)}</span>
                         </div>
                     )}

@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::secrets::{self, SecretKind};
 use crate::ssh::client::Client;
-use crate::ssh::sftp::{self, DirSize, FileSyncEvent, SftpEntry, UploadEvent};
+use crate::ssh::sftp::{self, DirSize, FileSyncEvent, LocalScan, SftpEntry, UploadEvent};
 use crate::ssh::{self};
 use crate::state::{AppState, FileStamp, WatchedFile};
 use crate::storage::AuthType;
@@ -94,6 +94,20 @@ pub async fn sftp_download(
 ) -> Result<(), String> {
     let session = get_sftp(&state, &session_id).await?;
     sftp::download(&session, &remote_path, &local_path).await.map_err(|e| e.to_string())
+}
+
+// Sizes up an upload before it starts, so the panel has a denominator for the
+// progress it is about to report. Takes the whole selection at once rather than
+// one path per call: the frontend uploads each picked path with its own
+// `sftp_upload`, and a total that arrived per path would grow while the transfer
+// was already running.
+//
+// Touches no session and opens no channel — it reads the local disk only — but it
+// lives here because the upload it measures does.
+#[tauri::command]
+pub async fn sftp_scan_local(local_paths: Vec<String>) -> Result<LocalScan, String> {
+    let roots: Vec<PathBuf> = local_paths.into_iter().map(PathBuf::from).collect();
+    Ok(sftp::scan_local_paths(&roots).await)
 }
 
 #[tauri::command]

@@ -562,3 +562,31 @@ the host in about a millisecond:
 **Rule:** when surfacing "does this look wrong", prefer the fields the subject
 cannot write. Cross-check the claimed identity (`comm`, `argv`) against the
 kernel's (`exe`, `starttime`, uid) rather than displaying only the claim.
+
+## An SMBIOS structure's length byte is not a field offset table
+
+`/sys/firmware/dmi/tables/DMI` is a stream of variable-length structures, and two
+things about that shape bite immediately.
+
+**Reading a field means bounds-checking against *this* structure's own `length`
+byte.** The formatted area grew with every SMBIOS version, so `configured memory
+speed` (0x20) simply does not exist on a 2.3-era table — the structure ends before
+it. Indexing a fixed layout there reads the *string set* that follows and reports
+it as a speed.
+
+**And the string set is why a length byte cannot be patched in place.** The
+NUL-separated strings begin immediately after the formatted area, so shortening
+`length` without physically removing the bytes leaves the parser looking for the
+string set inside the padding it just skipped over, finding a `00 00` there, and
+resynchronising onto garbage for the rest of the table. This cost a wrong test,
+not wrong code: the "old SMBIOS version" case has to *rebuild* the table
+(`rebuild()` in `ssh/dimms.rs`'s tests), not edit one byte of it.
+
+**Rule:** for any length-prefixed binary format, read fields through an accessor
+that returns `Option` from a bounds-checked slice of the record's declared extent,
+and build test variants by re-serialising rather than by poking bytes.
+
+Also: `od` without `-v` collapses runs of identical lines to a single `*` — 64
+zero bytes come back as 17 tokens instead of 64. Any use of `od` to *transport*
+bytes rather than to eyeball them needs `-v`, and a firmware table is mostly
+padding.

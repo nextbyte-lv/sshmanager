@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import { MemoryModulesDialog } from "@/components/monitor/MemoryModulesDialog";
 import { Sparkline } from "@/components/monitor/Sparkline";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { formatBytes, formatDuration, formatPercent, formatRate } from "@/lib/monitor";
+import { describeModules, formatBytes, formatDuration, formatPercent, formatRate } from "@/lib/monitor";
 import { cn } from "@/lib/utils";
-import type { Snapshot } from "@/types/monitor";
+import type { MemoryInventory, Snapshot } from "@/types/monitor";
 
 export interface StatHistory {
     cpu: number[];
@@ -16,6 +18,11 @@ export interface StatHistory {
 interface MonitorStatsProps {
     snapshot: Snapshot;
     history: StatHistory;
+    /** The physical modules, once someone has asked for them. */
+    modules: MemoryInventory | null;
+    modulesLoading: boolean;
+    modulesError: string | null;
+    onReadModules: () => void;
 }
 
 // The palette is monochrome by design, so a gauge only takes on colour once it is
@@ -79,7 +86,68 @@ function Gauge({ percent, className }: { percent: number; className?: string }) 
     return <Progress value={safe} className={cn("mt-1.5", gaugeTone(safe), className)} />;
 }
 
-export function MonitorStats({ snapshot, history }: MonitorStatsProps) {
+/**
+ * The DIMMs behind the total. Deliberately a button rather than something the
+ * panel reads on open: the module table is SMBIOS data, root-only on nearly every
+ * host, so fetching it unasked would spend a sudo entry on someone who only
+ * wanted to see a CPU graph.
+ */
+function MemoryModules({
+    modules,
+    loading,
+    error,
+    onRead,
+}: {
+    modules: MemoryInventory | null;
+    loading: boolean;
+    error: string | null;
+    onRead: () => void;
+}) {
+    const [open, setOpen] = useState(false);
+
+    if (modules) {
+        return (
+            <>
+                <Button
+                    variant="ghost"
+                    className="mt-1 h-auto w-full justify-start px-1 py-0.5 text-[10px] font-normal text-muted-foreground"
+                    onClick={() => setOpen(true)}
+                >
+                    <span className="truncate">{describeModules(modules)}</span>
+                </Button>
+                <MemoryModulesDialog open={open} onOpenChange={setOpen} inventory={modules} />
+            </>
+        );
+    }
+
+    return (
+        <>
+            <Button
+                variant="ghost"
+                disabled={loading}
+                className="mt-1 h-auto px-1 py-0.5 text-[10px] font-normal text-muted-foreground"
+                title="Read the DIMM type, speed and part numbers from the host's SMBIOS table. Needs root on most hosts, so this may use sudo."
+                onClick={onRead}
+            >
+                {loading ? "Reading modules…" : "Modules…"}
+            </Button>
+            {error && (
+                <p className="px-1 text-[10px] text-warn" title={error}>
+                    {error}
+                </p>
+            )}
+        </>
+    );
+}
+
+export function MonitorStats({
+    snapshot,
+    history,
+    modules,
+    modulesLoading,
+    modulesError,
+    onReadModules,
+}: MonitorStatsProps) {
     const { cpu, memory, swap, host } = snapshot;
     const memoryPercent = memory.total_bytes ? (memory.used_bytes / memory.total_bytes) * 100 : 0;
 
@@ -162,6 +230,12 @@ export function MonitorStats({ snapshot, history }: MonitorStatsProps) {
                         swap {formatBytes(swap.used_bytes)} / {formatBytes(swap.total_bytes)}
                     </div>
                 )}
+                <MemoryModules
+                    modules={modules}
+                    loading={modulesLoading}
+                    error={modulesError}
+                    onRead={onReadModules}
+                />
             </Card>
 
             <Card

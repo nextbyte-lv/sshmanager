@@ -18,10 +18,16 @@ export interface DirSize {
   partial: boolean;
 }
 
+/** What an upload is about to move, counted locally before it starts. */
+export interface LocalScan {
+  files: number;
+  bytes: number;
+}
+
 export type UploadEvent =
   | { type: "started"; path: string; total_bytes: number }
   | { type: "progress"; path: string; bytes_done: number; total_bytes: number }
-  | { type: "skipped"; path: string }
+  | { type: "skipped"; path: string; total_bytes: number }
   | { type: "file_done"; path: string }
   | { type: "file_error"; path: string; message: string }
   | { type: "done"; uploaded: number; skipped: number; failed: number };

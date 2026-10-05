@@ -137,3 +137,37 @@ export interface ListeningSocket {
 }
 
 export type KillSignal = "term" | "kill" | "int" | "hup";
+
+// Mirrors `src-tauri/src/ssh/dimms.rs`. Physical hardware, so unlike everything
+// above it is read once on demand rather than sampled.
+
+export interface MemoryModule {
+  /** The slot's silkscreen name, e.g. `DIMM_A1`. */
+  locator: string;
+  bank: string | null;
+  /** `DDR4`, `DDR5`, `LPDDR5`… `Unknown` on a hypervisor that fakes the table. */
+  kind: string;
+  size_bytes: number;
+  /** Rated speed in MT/s. */
+  speed_mts: number | null;
+  /** What it is actually clocked at — lower than rated when the board down-clocks. */
+  configured_mts: number | null;
+  manufacturer: string | null;
+  part_number: string | null;
+  rank: number | null;
+  form_factor: string | null;
+  /** `Registered`, `Unbuffered`, `LRDIMM`, `Non-volatile`. */
+  detail: string[];
+}
+
+export interface MemoryInventory {
+  modules: MemoryModule[];
+  /** Slots the firmware reports, populated or not. */
+  total_slots: number;
+  empty_slots: number;
+  ecc: string | null;
+  max_capacity_bytes: number | null;
+  /** `edac` carries type and size only — the UI says so rather than showing blanks. */
+  source: "dmi" | "edac" | null;
+  warnings: string[];
+}

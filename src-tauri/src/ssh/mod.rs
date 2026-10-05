@@ -1,4 +1,5 @@
 pub mod client;
+pub mod dimms;
 pub mod exec;
 pub mod monitor;
 pub mod pty;
