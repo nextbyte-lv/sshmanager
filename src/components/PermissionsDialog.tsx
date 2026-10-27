@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
     formatOctal,
     formatSymbolic,
@@ -27,7 +28,7 @@ import {
     type What,
     type Who,
 } from "@/lib/permissions";
-import type { SftpEntry } from "@/types/sftp";
+import type { Account, OwnerNames, SftpEntry } from "@/types/sftp";
 
 const WHO_ROWS: { who: Who; label: string }[] = [
     { who: "owner", label: "Owner" },
@@ -51,6 +52,52 @@ const SPECIAL_BITS: { bit: number; label: string; title: string }[] = [
     { bit: STICKY, label: "sticky", title: "On a folder, only an entry's owner may delete it" },
 ];
 
+export interface AttributeChange {
+    mode: number;
+    /** The chosen owner and group — the entry's own ids when left alone, null if the server sent none. */
+    uid: number | null;
+    gid: number | null;
+    recursive: boolean;
+}
+
+interface AccountSelectProps {
+    id: string;
+    label: string;
+    value: number;
+    accounts: Account[];
+    onChange: (id: number) => void;
+}
+
+// An id the account database doesn't name (a deleted user, a file unpacked from
+// another machine) is still the current value, so it is offered as a bare number
+// rather than leaving the trigger blank.
+function AccountSelect({ id, label, value, accounts, onChange }: AccountSelectProps) {
+    const options = accounts.some((account) => account.id === value)
+        ? accounts
+        : [{ id: value, name: String(value) }, ...accounts];
+    const items = options.map((account) => ({
+        value: String(account.id),
+        label: account.name === String(account.id) ? account.name : `${account.name} (${account.id})`,
+    }));
+    return (
+        <div className="grid min-w-0 flex-1 gap-1.5">
+            <Label htmlFor={id}>{label}</Label>
+            <Select items={items} value={String(value)} onValueChange={(next) => onChange(Number(next))}>
+                <SelectTrigger id={id} className="w-full">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {items.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
+}
+
 interface PermissionsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -58,19 +105,23 @@ interface PermissionsDialogProps {
     entry: SftpEntry | null;
     /** Absolute remote path of `entry`, shown so there's no doubt what is changing. */
     path: string;
+    /** The host's users and groups for the owner pickers; null until fetched. */
+    owners: OwnerNames | null;
     /**
-     * Applies the mode. Rejections are caught and shown in the dialog, which stays
+     * Applies the owner and mode. Rejections are caught and shown in the dialog, which stays
      * open so the value can be corrected — a refused chmod usually means the mode
      * was fine and the *file* was the problem, and the message says which.
      */
-    onApply: (mode: number, recursive: boolean) => Promise<void>;
+    onApply: (change: AttributeChange) => Promise<void>;
 }
 
 // Editing a remote mode by hand means either remembering what 2775 does or
 // reasoning it out from `ls -l`. This shows both at once: the octal field, the
 // checkbox grid and the symbolic string are all the same number.
-export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: PermissionsDialogProps) {
+export function PermissionsDialog({ open, onOpenChange, entry, path, owners, onApply }: PermissionsDialogProps) {
     const [mode, setMode] = useState(0);
+    const [uid, setUid] = useState<number | null>(null);
+    const [gid, setGid] = useState<number | null>(null);
     // Holds what's being typed in the octal field, including values too short to
     // parse. Null means "show the mode" — which is what the grid sets it back to,
     // so the field can never sit there disagreeing with the checkboxes.
@@ -82,6 +133,8 @@ export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: 
     useEffect(() => {
         if (!open) return;
         setMode(entry?.mode ?? 0);
+        setUid(entry?.uid ?? null);
+        setGid(entry?.gid ?? null);
         setOctalDraft(null);
         setRecursive(false);
         setError(null);
@@ -102,7 +155,7 @@ export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: 
         setBusy(true);
         setError(null);
         try {
-            await onApply(mode, recursive);
+            await onApply({ mode, uid, gid, recursive });
             onOpenChange(false);
         } catch (err) {
             setError(String(err));
@@ -131,6 +184,25 @@ export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: 
                 </DialogHeader>
 
                 <div className="grid gap-3">
+                    {uid !== null && gid !== null && (
+                        <div className="flex gap-2">
+                            <AccountSelect
+                                id="owner-user"
+                                label="Owner"
+                                value={uid}
+                                accounts={owners?.users ?? []}
+                                onChange={setUid}
+                            />
+                            <AccountSelect
+                                id="owner-group"
+                                label="Group"
+                                value={gid}
+                                accounts={owners?.groups ?? []}
+                                onChange={setGid}
+                            />
+                        </div>
+                    )}
+
                     <div className="flex items-end gap-2">
                         <div className="grid gap-1.5">
                             <Label htmlFor="mode-octal">Octal</Label>
@@ -216,7 +288,8 @@ export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: 
                             <span>
                                 Apply to everything inside this folder
                                 <span className="block text-xs text-muted-foreground">
-                                    The same mode for every file and subfolder, as{" "}
+                                    The same owner and mode for every file and subfolder, as{" "}
+                                    <span className="font-mono">chown -R</span> and{" "}
                                     <span className="font-mono">chmod -R</span> would. Symlinks are left
                                     alone.
                                 </span>
@@ -231,10 +304,10 @@ export function PermissionsDialog({ open, onOpenChange, entry, path, onApply }: 
                         </p>
                     )}
 
-                    {entry !== null && (entry.uid !== null || entry.gid !== null) && (
+                    {entry !== null && entry.uid !== null && (
                         <p className="text-xs text-muted-foreground">
-                            Owned by uid {entry.uid ?? "?"}, gid {entry.gid ?? "?"} — a mode change on
-                            something this login doesn't own is retried with sudo.
+                            Changing the owner, or the mode of something this login doesn't own, is
+                            retried with sudo when the server refuses it.
                         </p>
                     )}
 

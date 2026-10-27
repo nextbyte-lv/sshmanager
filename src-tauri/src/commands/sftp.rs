@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::secrets::{self, SecretKind};
 use crate::ssh::client::Client;
-use crate::ssh::sftp::{self, DirSize, FileSyncEvent, LocalScan, SftpEntry, UploadEvent};
+use crate::ssh::sftp::{self, Account, DirSize, FileSyncEvent, LocalScan, OwnerNames, SftpEntry, UploadEvent};
 use crate::ssh::{self};
 use crate::state::{AppState, FileStamp, WatchedFile};
 use crate::storage::AuthType;
@@ -202,6 +202,67 @@ pub async fn sftp_set_mode(
     }
 }
 
+// The host's users and groups, so the panel can show `www-data` rather than `33`
+// and offer names when changing an owner. Fetched once per session by the panel:
+// the account database rarely changes, and a lookup per listing would be another
+// exec channel on every click.
+//
+// Never fails: names are a convenience over the ids the listing already has, so a
+// host that won't say (no `getent`, an unreadable `/etc/passwd`) just leaves the
+// panel showing numbers.
+#[tauri::command]
+pub async fn sftp_owner_names(state: State<'_, AppState>, session_id: String) -> Result<OwnerNames, String> {
+    let (ssh, _) = session_ssh(&state, &session_id)?;
+    Ok(OwnerNames { users: account_db(&ssh, "passwd").await, groups: account_db(&ssh, "group").await })
+}
+
+// `getent` sees every account NSS does — LDAP and sssd users included — but
+// macOS, BSD and minimal containers don't have it, and there the flat file is
+// the whole story anyway.
+async fn account_db(ssh: &Arc<russh::client::Handle<Client>>, db: &str) -> Vec<Account> {
+    for command in [format!("getent {db}"), format!("cat /etc/{db}")] {
+        if let Ok(output) = ssh::exec::run(ssh, &command, None).await {
+            let accounts = parse_accounts(&output.stdout);
+            if !accounts.is_empty() {
+                return accounts;
+            }
+        }
+    }
+    Vec::new()
+}
+
+#[tauri::command]
+pub async fn sftp_set_owner(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    uid: u32,
+    gid: u32,
+    recursive: bool,
+) -> Result<(), String> {
+    // The same guard the recursive chmod carries: handing the whole filesystem to
+    // one user is never a panel action.
+    if recursive && path.trim_matches('/').is_empty() {
+        return Err("refusing to change the owner of the whole filesystem".to_string());
+    }
+
+    let session = get_sftp(&state, &session_id).await?;
+    let result = if recursive {
+        sftp::set_owner_recursive(&session, &path, uid, gid).await
+    } else {
+        sftp::set_owner(&session, &path, uid, gid).await
+    };
+
+    match result {
+        Ok(()) => Ok(()),
+        // Giving a file away is root's business on every Unix, so for anything
+        // but a group change within the login user's own groups this is the
+        // path that actually runs.
+        Err(e) if e.is_permission_denied() => elevated_chown(&state, &session_id, &path, uid, gid, recursive).await,
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 pub async fn sftp_rename(
     state: State<'_, AppState>,
@@ -351,6 +412,33 @@ fn chmod_args(mode: u32, recursive: bool, path: &str) -> String {
     format!("chmod {}{:04o} -- {}", if recursive { "-R " } else { "" }, mode, shell_quote(path))
 }
 
+// `chown [-R] UID:GID -- PATH`, by number: the ids are what the listing and the
+// SFTP attempt used, and a name could resolve differently under sudo's NSS view.
+fn chown_args(uid: u32, gid: u32, recursive: bool, path: &str) -> String {
+    format!("chown {}{uid}:{gid} -- {}", if recursive { "-R " } else { "" }, shell_quote(path))
+}
+
+// One `name:x:id:...` line per account — the layout `getent` and the flat files
+// share for both passwd and group. A uid can carry several names (`root` and
+// `toor`); the first one wins, as it does for `getpwuid` and so for `ls -l`.
+// Sorted by name, which is how the owner picker lists them.
+fn parse_accounts(text: &str) -> Vec<Account> {
+    let mut seen = std::collections::HashSet::new();
+    let mut accounts: Vec<Account> = text
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let mut fields = line.split(':');
+            let name = fields.next()?.trim();
+            let id = fields.nth(1)?.trim().parse::<u32>().ok()?;
+            (!name.is_empty()).then(|| Account { id, name: name.to_string() })
+        })
+        .filter(|account| seen.insert(account.id))
+        .collect();
+    accounts.sort_by(|a, b| a.name.cmp(&b.name));
+    accounts
+}
+
 // `mkdir -p -- PATH` and `cp -- SOURCE DEST`. The `--` is the point of both: a
 // remote path is user data and one starting with `-` would otherwise be read as a
 // flag. `-p` makes the mkdir idempotent, so a directory another entry of the same
@@ -426,7 +514,9 @@ pub(crate) fn last_error_line(stderr: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chmod_args, cp_args, du_command, mkdir_args, names_path, parse_du, shell_quote};
+    use super::{
+        chmod_args, chown_args, cp_args, du_command, mkdir_args, names_path, parse_accounts, parse_du, shell_quote,
+    };
 
     // The remote path comes from the server's own directory listing, so it can hold
     // anything a filename may hold — it must never be able to end the quoted string
@@ -448,6 +538,22 @@ mod tests {
         assert_eq!(chmod_args(0o1777, false, "/tmp"), "chmod 1777 -- '/tmp'");
         assert_eq!(chmod_args(0o4755, false, "/usr/bin/x"), "chmod 4755 -- '/usr/bin/x'");
         assert_eq!(chmod_args(0, false, "/tmp/locked"), "chmod 0000 -- '/tmp/locked'");
+    }
+
+    #[test]
+    fn renders_the_escalated_chown_by_number() {
+        assert_eq!(chown_args(33, 33, false, "/var/www/x"), "chown 33:33 -- '/var/www/x'");
+        assert_eq!(chown_args(0, 1000, true, "/srv/-site"), "chown -R 0:1000 -- '/srv/-site'");
+    }
+
+    #[test]
+    fn reads_passwd_and_group_lines() {
+        let passwd = "# comment\nroot:x:0:0:root:/root:/bin/bash\ntoor:x:0:0::/root:/bin/sh\n\
+                      www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nbroken line\nbad:x:nan:0::/:\n";
+        let ids = |text| parse_accounts(text).into_iter().map(|a| (a.id, a.name)).collect::<Vec<_>>();
+        // `toor` shares uid 0 with the earlier `root` and loses, as with getpwuid.
+        assert_eq!(ids(passwd), vec![(0, "root".to_string()), (33, "www-data".to_string())]);
+        assert_eq!(ids("sudo:x:27:alice,bob\nadm:x:4:syslog\n"), vec![(4, "adm".to_string()), (27, "sudo".to_string())]);
     }
     // With no operands at all `du` would silently size the working directory, so the
     // command must never be built from an empty list (the caller returns early).
@@ -683,4 +789,19 @@ async fn elevated_chmod(
     run_with_sudo(state, session_id, &chmod_args(mode, recursive, path))
         .await
         .map_err(|reason| format!("cannot change permissions of {path}, and sudo could not either: {reason}"))
+}
+
+// The owner's version of the same story. chown(2) to another user is root-only
+// everywhere, so the SFTP attempt is mostly a formality and this is the real path.
+async fn elevated_chown(
+    state: &AppState,
+    session_id: &str,
+    path: &str,
+    uid: u32,
+    gid: u32,
+    recursive: bool,
+) -> Result<(), String> {
+    run_with_sudo(state, session_id, &chown_args(uid, gid, recursive, path))
+        .await
+        .map_err(|reason| format!("cannot change the owner of {path}, and sudo could not either: {reason}"))
 }

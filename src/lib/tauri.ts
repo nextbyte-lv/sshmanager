@@ -15,6 +15,7 @@ import type {
   DirSize,
   FileSyncEvent,
   LocalScan,
+  OwnerNames,
   SftpEntry,
   UploadEvent,
 } from "@/types/sftp";
@@ -132,6 +133,20 @@ export function sftpRename(sessionId: string, from: string, to: string) {
 
 export function sftpSetMode(sessionId: string, path: string, mode: number, recursive: boolean) {
   return invoke<void>("sftp_set_mode", { sessionId, path, mode, recursive });
+}
+
+export function sftpSetOwner(
+  sessionId: string,
+  path: string,
+  uid: number,
+  gid: number,
+  recursive: boolean,
+) {
+  return invoke<void>("sftp_set_owner", { sessionId, path, uid, gid, recursive });
+}
+
+export function sftpOwnerNames(sessionId: string) {
+  return invoke<OwnerNames>("sftp_owner_names", { sessionId });
 }
 
 export function sftpOpenFile(

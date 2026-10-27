@@ -10,6 +10,18 @@ export interface SftpEntry {
   gid: number | null;
 }
 
+/** A user or group the host knows by name — listings only carry the numeric id. */
+export interface Account {
+  id: number;
+  name: string;
+}
+
+/** The host's account database, sorted by name. Empty lists if the host wouldn't say. */
+export interface OwnerNames {
+  users: Account[];
+  groups: Account[];
+}
+
 /** Recursive size of one directory, summed on the remote by `du`. */
 export interface DirSize {
   path: string;

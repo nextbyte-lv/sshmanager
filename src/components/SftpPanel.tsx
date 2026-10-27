@@ -21,10 +21,10 @@ import {
     Upload,
     X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { PermissionsDialog } from "@/components/PermissionsDialog";
+import { PermissionsDialog, type AttributeChange } from "@/components/PermissionsDialog";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -45,13 +45,15 @@ import {
     sftpListDir,
     sftpMkdir,
     sftpOpenFile,
+    sftpOwnerNames,
     sftpRename,
     sftpScanLocal,
     sftpSetMode,
+    sftpSetOwner,
     sftpUpload,
 } from "@/lib/tauri";
 import type { ConnectionProfile } from "@/types/connection";
-import type { DirSize, FileSyncEvent, SftpEntry, UploadEvent } from "@/types/sftp";
+import type { DirSize, FileSyncEvent, OwnerNames, SftpEntry, UploadEvent } from "@/types/sftp";
 
 // Progress across the *whole* selection, not the file in flight. The totals come
 // from one `sftpScanLocal` before anything is sent; everything else is summed as
@@ -232,6 +234,15 @@ export function SftpPanel({
     const [permissionsTarget, setPermissionsTarget] = useState<SftpEntry | null>(
         null,
     );
+    const [ownerNames, setOwnerNames] = useState<OwnerNames | null>(null);
+    const userNames = useMemo(
+        () => new Map(ownerNames?.users.map((user) => [user.id, user.name])),
+        [ownerNames],
+    );
+    const groupNames = useMemo(
+        () => new Map(ownerNames?.groups.map((group) => [group.id, group.name])),
+        [ownerNames],
+    );
     const uploadSampleRef = useRef<{ time: number; bytes: number } | null>(
         null,
     );
@@ -243,6 +254,16 @@ export function SftpPanel({
         sftpCanonicalize(sessionId, ".")
             .then(setPath)
             .catch((err) => setListError(String(err)));
+    }, [sessionId]);
+
+    // Once per session, not per listing: the account database barely changes and
+    // each lookup is an exec channel. The backend never rejects this, so a host
+    // that won't name its accounts just keeps showing numeric ids.
+    useEffect(() => {
+        setOwnerNames(null);
+        sftpOwnerNames(sessionId)
+            .then(setOwnerNames)
+            .catch(() => {});
     }, [sessionId]);
 
     const refresh = useCallback(() => {
@@ -557,14 +578,28 @@ export function SftpPanel({
     // Left to throw: the dialog shows the failure itself and stays open, so a
     // refusal the sudo retry couldn't get past can be read next to the mode that
     // caused it.
-    async function handleSetMode(
+    async function handleApplyAttributes(
         entry: SftpEntry,
-        mode: number,
-        recursive: boolean,
+        { mode, uid, gid, recursive }: AttributeChange,
     ) {
         if (path === null) return;
-        await sftpSetMode(sessionId, joinPath(path, entry.name), mode, recursive);
-        refresh();
+        const target = joinPath(path, entry.name);
+        try {
+            // Owner first: chown(2) clears setuid/setgid on a regular file, so a
+            // mode applied before it could lose the very bits it just set. Only
+            // when it actually changed — a recursive chmod must not also flatten
+            // every child's ownership to the folder's.
+            if (
+                uid !== null &&
+                gid !== null &&
+                (uid !== entry.uid || gid !== entry.gid)
+            )
+                await sftpSetOwner(sessionId, target, uid, gid, recursive);
+            await sftpSetMode(sessionId, target, mode, recursive);
+        } finally {
+            // Either step may have landed before the other failed.
+            refresh();
+        }
     }
 
     async function handleAddFavorite() {
@@ -947,6 +982,18 @@ export function SftpPanel({
                                         {formatOctal(entry.mode)}
                                     </button>
                                 )}
+                                {entry.uid !== null && (
+                                    <button
+                                        type="button"
+                                        className="max-w-16 shrink-0 cursor-pointer truncate text-[10px] text-muted-foreground hover:text-foreground"
+                                        title={`Owner ${userNames.get(entry.uid) ?? entry.uid}, group ${
+                                            entry.gid === null ? "?" : (groupNames.get(entry.gid) ?? entry.gid)
+                                        } — click to change`}
+                                        onClick={() => setPermissionsTarget(entry)}
+                                    >
+                                        {userNames.get(entry.uid) ?? entry.uid}
+                                    </button>
+                                )}
                                 <EntrySize
                                     entry={entry}
                                     size={dirSizes[entryPath]}
@@ -1005,9 +1052,10 @@ export function SftpPanel({
                 }}
                 entry={permissionsTarget}
                 path={joinPath(path ?? "", permissionsTarget?.name ?? "")}
-                onApply={async (mode, recursive) => {
+                owners={ownerNames}
+                onApply={async (change) => {
                     if (permissionsTarget)
-                        await handleSetMode(permissionsTarget, mode, recursive);
+                        await handleApplyAttributes(permissionsTarget, change);
                 }}
             />
 

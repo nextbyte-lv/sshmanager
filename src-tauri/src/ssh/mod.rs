@@ -44,6 +44,8 @@ pub enum SshError {
     RemoteDelete { path: String, source: russh_sftp::client::error::Error },
     #[error("cannot change permissions of {path} on the server: {}", sftp_reason(source))]
     RemoteChmod { path: String, source: russh_sftp::client::error::Error },
+    #[error("cannot change the owner of {path} on the server: {}", sftp_reason(source))]
+    RemoteChown { path: String, source: russh_sftp::client::error::Error },
     #[error("local file error: {0}")]
     LocalIo(#[from] std::io::Error),
     #[error("file transfer error: {0}")]
@@ -59,7 +61,8 @@ impl SshError {
             | Self::RemoteRead { source, .. }
             | Self::RemoteWrite { source, .. }
             | Self::RemoteDelete { source, .. }
-            | Self::RemoteChmod { source, .. } => source,
+            | Self::RemoteChmod { source, .. }
+            | Self::RemoteChown { source, .. } => source,
             _ => return false,
         };
         matches!(

@@ -40,6 +40,21 @@ pub struct DirSize {
     pub partial: bool,
 }
 
+// One user or group the host knows by name. SFTP v3 listings carry only the
+// numeric uid/gid — the names live in the host's account database, read over an
+// exec channel (see `commands::sftp::sftp_owner_names`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Account {
+    pub id: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct OwnerNames {
+    pub users: Vec<Account>,
+    pub groups: Vec<Account>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UploadEvent {
@@ -404,20 +419,35 @@ pub async fn set_mode(sftp: &SftpSession, path: &str, mode: u32) -> Result<(), S
         .map_err(|source| SshError::RemoteChmod { path: path.to_string(), source })
 }
 
-// Applies one mode to a whole subtree, like `chmod -R`. SFTP has no recursive
+// Changes one entry's owner and group. SFTP v3 carries the two ids as a single
+// attribute — there is no setting one without the other — so the caller passes
+// the current value for whichever it isn't changing. A login user may only hand
+// a file to a group it belongs to, and never to another user; everything else
+// comes back as permission denied, which is the caller's cue to try sudo.
+pub async fn set_owner(sftp: &SftpSession, path: &str, uid: u32, gid: u32) -> Result<(), SshError> {
+    let mut attrs = Metadata::empty();
+    attrs.uid = Some(uid);
+    attrs.gid = Some(gid);
+    sftp.set_metadata(path, attrs)
+        .await
+        .map_err(|source| SshError::RemoteChown { path: path.to_string(), source })
+}
+
+// Every path under `root`, root included, in the order a recursive setstat must
+// visit them: files first, then directories deepest-first. SFTP has no recursive
 // setstat, so the tree is walked the same way the recursive delete walks it.
 //
-// The walk is completed *before* anything is chmod-ed, and the modes are then
-// applied to files first and to directories deepest-first. Applying as we
-// discover would let the operation lock itself out — a mode without owner
-// execute (0644, 0600) on a directory we still have to descend into makes the
-// next `read_dir` fail — and the same ordering means a half-finished run never
-// leaves an unreachable directory behind.
+// The walk is completed *before* anything is changed. Applying as we discover
+// would let a chmod lock itself out — a mode without owner execute (0644, 0600)
+// on a directory we still have to descend into makes the next `read_dir` fail —
+// and the same ordering means a half-finished run never leaves an unreachable
+// directory behind. A chown can't lock the walk out that way, but shares the
+// order because it costs nothing.
 //
-// Symlinks are skipped: a setstat follows the link, so chmod-ing one would
-// silently re-mode whatever it points at, possibly outside this tree. `chmod -R`
-// leaves them alone for the same reason.
-pub async fn set_mode_recursive(sftp: &SftpSession, root: &str, mode: u32) -> Result<(), SshError> {
+// Symlinks are skipped: a setstat follows the link, so changing one would
+// silently change whatever it points at, possibly outside this tree. `chmod -R`
+// and `chown -R` leave link targets alone for the same reason.
+async fn setstat_order(sftp: &SftpSession, root: &str) -> Result<Vec<String>, SshError> {
     let mut dirs = vec![root.to_string()];
     let mut files: Vec<String> = Vec::new();
     let mut next = 0;
@@ -439,11 +469,22 @@ pub async fn set_mode_recursive(sftp: &SftpSession, root: &str, mode: u32) -> Re
         }
     }
 
-    for file in &files {
-        set_mode(sftp, file, mode).await?;
+    files.extend(dirs.into_iter().rev());
+    Ok(files)
+}
+
+// Applies one mode to a whole subtree, like `chmod -R`.
+pub async fn set_mode_recursive(sftp: &SftpSession, root: &str, mode: u32) -> Result<(), SshError> {
+    for path in setstat_order(sftp, root).await? {
+        set_mode(sftp, &path, mode).await?;
     }
-    for dir in dirs.iter().rev() {
-        set_mode(sftp, dir, mode).await?;
+    Ok(())
+}
+
+// Applies one owner and group to a whole subtree, like `chown -R`.
+pub async fn set_owner_recursive(sftp: &SftpSession, root: &str, uid: u32, gid: u32) -> Result<(), SshError> {
+    for path in setstat_order(sftp, root).await? {
+        set_owner(sftp, &path, uid, gid).await?;
     }
     Ok(())
 }
