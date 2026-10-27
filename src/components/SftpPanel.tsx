@@ -12,7 +12,6 @@ import {
     FolderUp,
     HardDrive,
     Loader2,
-    Lock,
     Pencil,
     RefreshCw,
     Sigma,
@@ -977,14 +976,6 @@ export function SftpPanel({
                                             <ArrowUp className="rotate-180" />
                                         </Button>
                                     )}
-                                    <Button
-                                        size="icon-xs"
-                                        variant="ghost"
-                                        title="Permissions"
-                                        onClick={() => setPermissionsTarget(entry)}
-                                    >
-                                        <Lock />
-                                    </Button>
                                     <Button
                                         size="icon-xs"
                                         variant="ghost"
