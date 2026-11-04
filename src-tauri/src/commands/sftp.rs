@@ -615,7 +615,7 @@ mod tests {
 // The connection's saved SSH password, to be reused for sudo. Key-based
 // connections only have a key passphrase stored, which is not a login password
 // and must never be handed to sudo — those get password-less sudo or nothing.
-fn sudo_password(state: &AppState, connection_id: &str) -> Option<String> {
+pub(crate) fn sudo_password(state: &AppState, connection_id: &str) -> Option<String> {
     let uuid = Uuid::parse_str(connection_id).ok()?;
     let profile = state.connections.lock().unwrap().get(&uuid)?;
     if !matches!(profile.auth_type, AuthType::Password) {

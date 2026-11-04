@@ -3,7 +3,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { closeSession, openSession, resizeSession, sendInput } from "@/lib/tauri";
@@ -15,9 +15,11 @@ interface TerminalPaneProps {
   profile: ConnectionProfile;
   onClosed?: (message?: string) => void;
   onSessionId?: (sessionId: string) => void;
+  /** Filled with a function that focuses the terminal, for callers that type into it. */
+  focusRef?: RefObject<(() => void) | null>;
 }
 
-export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPaneProps) {
+export function TerminalPane({ profile, onClosed, onSessionId, focusRef }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
@@ -42,6 +44,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
     term.loadAddon(new SearchAddon());
     term.open(container);
     fitAddon.fit();
+    if (focusRef) focusRef.current = () => term.focus();
 
     let sessionId: string | null = null;
     let disposed = false;
@@ -110,6 +113,7 @@ export function TerminalPane({ profile, onClosed, onSessionId }: TerminalPanePro
 
     return () => {
       disposed = true;
+      if (focusRef) focusRef.current = null;
       resizeObserver.disconnect();
       selectionDisposable.dispose();
       dataDisposable.dispose();

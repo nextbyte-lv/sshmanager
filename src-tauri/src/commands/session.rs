@@ -95,6 +95,7 @@ pub async fn test_connection(id: Option<String>, input: ConnectionInput, secret:
         last_used_at: None,
         color: input.color,
         favorite_paths: Vec::new(),
+        manage_updates: input.manage_updates,
     };
 
     let secret = match secret {

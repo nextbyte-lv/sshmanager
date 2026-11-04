@@ -660,3 +660,91 @@ Deliberately left alone: `upload_path` still walks lazily and still runs once pe
 picked path. The scan is a second, local-only walk rather than a `Scanned` event
 from inside the transfer — one command per path would have emitted one total per
 path, and a denominator that climbs while the bar fills is worse than none.
+
+# Package updates: status on connect, run in the terminal
+
+Show, per pane, when a Debian/Ubuntu host was last refreshed and upgraded, how
+many upgrades are pending (and how many are security), and whether it wants a
+reboot. For connections marked as "managed", offer a button that runs the upgrade
+**in the pane's own terminal** — raw output, real sudo prompt, real dpkg
+config-file questions, nothing hidden behind a progress bar.
+
+Everything read here is unprivileged, so the status check never asks for sudo.
+Non-apt hosts get no indicator at all rather than a misleading one.
+
+## Backend
+
+- [x] `ssh/updates.sh` — one-shot collector, sent on stdin to a bare `sh` with
+      `@@section`s and an `@@end` sentinel (same contract as `dimms.sh`):
+      - `@@os`: `ID` / `ID_LIKE` / `PRETTY_NAME` from `/etc/os-release`
+      - `@@now`: `date +%s` (remote clock — ages are computed against it, not
+        the local PC's)
+      - `@@refreshed`: mtime of `/var/lib/apt/periodic/update-success-stamp`,
+        falling back to `/var/lib/apt/lists` (last successful `apt update`)
+      - `@@changed`: mtime of `/var/lib/dpkg/status` (last install/upgrade/remove)
+      - `@@pending`: `/usr/lib/update-notifier/apt-check` if present (`N;M`, on
+        stderr), else `apt list --upgradable`, counting `-security` origins
+      - `@@reboot`: `/var/run/reboot-required` + `.pkgs`
+      - `@@auto`: `apt-config dump` for `APT::Periodic::Unattended-Upgrade` /
+        `Update-Package-Lists`, plus `systemctl show apt-daily-upgrade.service
+        -p ExecMainExitTimestamp -p Result` (last unattended run and outcome,
+        readable without root)
+- [x] `ssh/updates.rs` — pure `parse(&str) -> UpdateStatus` with unit tests
+      (including a host without apt-check, without systemd, and a non-Debian
+      host → `supported: false`)
+- [x] `commands/updates.rs` — `updates_status(session_id)`, wrapped in a timeout
+      (`exec::run` has none — see lessons)
+- [x] Connection flag `manage_updates: bool` (`#[serde(default)]`) on
+      `ConnectionProfile` + `ConnectionInput`, carried through save/export/import
+
+## Frontend
+
+- [x] `types/updates.ts` + `lib/tauri.ts` wrapper
+- [x] Toolbar indicator in `PaneToolbar` (icon + colour: green up to date,
+      amber pending, red security pending or reboot required); fetched once when
+      the session id arrives, plus a manual refresh
+- [x] Dropdown with details: last refresh, last package change, pending /
+      security counts, reboot required (+ packages), auto-updates on/off and last
+      unattended run result
+- [x] "Run updates" item, only when `manage_updates` is set: types
+      `sudo apt update && sudo apt upgrade` (no `sudo` when logged in as root)
+      into the terminal via `sendInput`, presses Enter, and focuses it — apt's own
+      Y/n prompt is the confirmation
+- [x] Checkbox "I manage this server (offer to run updates)" in
+      `ConnectionEditorDialog`
+
+## Verification
+
+- [x] `cargo test` for the parser; `cargo check`; `tsc --noEmit`
+- [x] Pipe `updates.sh` into `wsl.exe -d Debian -- sh` and check the parsed result
+- [ ] Live: indicator on a Debian host, nothing on a non-apt host, run button
+      only on a managed connection
+
+## Review
+
+- Status is one unprivileged exec round trip (`ssh/updates.sh`) on the pane's
+  existing connection, fetched once per session and re-checked when the menu is
+  opened more than 30 s after the last answer. That is how it catches up after an
+  upgrade run in the terminal, without polling.
+- "Last refreshed" is the newest of `update-success-stamp`, `/var/lib/apt/lists`
+  and `lists/partial`, because no single file records a manual `apt update` on
+  plain Debian. "Last package change" is the mtime of `/var/lib/dpkg/status`. It
+  is world-readable, where `/var/log/apt/history.log` usually is not.
+- A reboot counts as required if `/var/run/reboot-required` exists *or* the most
+  recently installed `/boot/vmlinuz-*` is not the running kernel. Plain Debian only
+  creates the flag file when update-notifier-common or needrestart is installed.
+- The last unattended run comes from `systemctl show apt-daily-upgrade.service`
+  (monotonic timestamp + `/proc/uptime`, so it works on any systemd version), and
+  is gated on `LoadState=loaded` (see lessons).
+- Running the upgrade is backend-driven (`updates_run`). It types
+  `sudo -p '[sudo via SshManager] password for %u: ' sh -c 'apt update && apt upgrade'`
+  and answers that exact prompt once with the saved login password
+  (`SudoAutofill`). The password never reaches the webview. Key-auth connections
+  get the normal prompt.
+- The "Run updates" item appears only when the connection has `manage_updates`
+  set (checkbox in the editor). The indicator itself shows on every apt host. On
+  non-apt hosts it renders nothing.
+- Verified: 5 parser tests, including a real capture from WSL Debian 13
+  (39 pending, 4 security). `cargo test` (54 pass), `cargo check`,
+  `tsc --noEmit` and `npm run build` are all clean. **Not yet verified live**
+  against a real server in the running app.

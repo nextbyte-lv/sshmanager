@@ -143,6 +143,7 @@ pub fn import_connections(state: State<'_, AppState>, path: String) -> Result<Ve
             key_path: entry.profile.key_path,
             tags: entry.profile.tags,
             color: entry.profile.color,
+            manage_updates: entry.profile.manage_updates,
         };
         let mut saved = state.connections.lock().unwrap().save(None, input).map_err(|e| e.to_string())?;
         if !entry.profile.favorite_paths.is_empty() {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -40,6 +41,7 @@ export function ExportConnectionsDialog({ open, onOpenChange, ids, count }: Expo
       if (!path) return;
       await exportConnections(path, ids, includeSecrets);
       onOpenChange(false);
+      toast.success(`Exported ${count} connection${count === 1 ? "" : "s"}`, { description: path });
     } catch (err) {
       setError(String(err));
     } finally {

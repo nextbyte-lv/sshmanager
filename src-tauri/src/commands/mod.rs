@@ -2,6 +2,7 @@ pub mod connections;
 pub mod monitor;
 pub mod session;
 pub mod sftp;
+pub mod updates;
 
 use crate::secrets::SecretKind;
 use crate::storage::AuthType;

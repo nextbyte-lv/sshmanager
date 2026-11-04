@@ -18,6 +18,8 @@ export interface ConnectionProfile {
   last_used_at?: number | null;
   color?: string | null;
   favorite_paths: FavoritePath[];
+  /** The user owns this server: offer to run package upgrades on it. */
+  manage_updates: boolean;
 }
 
 export interface ConnectionInput {
@@ -29,6 +31,7 @@ export interface ConnectionInput {
   key_path?: string | null;
   tags: string[];
   color?: string | null;
+  manage_updates: boolean;
 }
 
 export type SecretKind = "password" | "passphrase";

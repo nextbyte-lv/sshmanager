@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -31,6 +32,7 @@ interface FormState {
   tags: string;
   secret: string;
   color: string;
+  manageUpdates: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -43,6 +45,7 @@ const EMPTY_FORM: FormState = {
   tags: "",
   secret: "",
   color: "",
+  manageUpdates: false,
 };
 
 // Dark, low-saturation tints close to the terminal's default background
@@ -70,6 +73,7 @@ function profileToForm(profile: ConnectionProfile): FormState {
     tags: profile.tags.join(", "),
     secret: "",
     color: profile.color ?? "",
+    manageUpdates: profile.manage_updates ?? false,
   };
 }
 
@@ -130,6 +134,7 @@ export function ConnectionEditorDialog({
         .map((t) => t.trim())
         .filter(Boolean),
       color: form.color || null,
+      manage_updates: form.manageUpdates,
     };
   }
 
@@ -309,6 +314,20 @@ export function ConnectionEditorDialog({
               />
             </div>
           </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={form.manageUpdates}
+              onCheckedChange={(checked) => setForm((f) => ({ ...f, manageUpdates: checked }))}
+              className="mt-0.5"
+            />
+            <span>
+              I manage this server
+              <span className="block text-xs text-muted-foreground">
+                Offer to run package upgrades from the pane toolbar
+              </span>
+            </span>
+          </label>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           {testStatus === "success" && <p className="text-sm text-emerald-500">Connected successfully.</p>}

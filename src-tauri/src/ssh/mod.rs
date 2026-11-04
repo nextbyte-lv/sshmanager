@@ -4,6 +4,7 @@ pub mod exec;
 pub mod monitor;
 pub mod pty;
 pub mod sftp;
+pub mod updates;
 
 // russh_sftp renders a status packet as "<code>: <message>", and servers commonly
 // send the code's own text as the message, giving "Permission denied: Permission

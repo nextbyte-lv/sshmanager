@@ -53,6 +53,8 @@ pub fn run() {
             commands::monitor::monitor_kill,
             commands::monitor::monitor_ports,
             commands::monitor::monitor_memory_modules,
+            commands::updates::updates_status,
+            commands::updates::updates_run,
             commands::sftp::sftp_canonicalize,
             commands::sftp::sftp_list_dir,
             commands::sftp::sftp_dir_sizes,

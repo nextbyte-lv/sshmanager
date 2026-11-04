@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { MosaicWindow, type MosaicPath, type MosaicDirection } from "react-mosaic-component";
 import { ChevronsDown, ChevronsRight } from "lucide-react";
 
@@ -6,10 +6,13 @@ import { MonitorPanel } from "@/components/MonitorPanel";
 import { PaneToolbar } from "@/components/PaneToolbar";
 import { SftpPanel } from "@/components/SftpPanel";
 import { TerminalPane } from "@/components/TerminalPane";
+import { UpdatesIndicator } from "@/components/UpdatesIndicator";
 import { Button } from "@/components/ui/button";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { updatesRun } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import type { ConnectionProfile } from "@/types/connection";
+import type { HostAction } from "@/types/updates";
 
 interface PaneLeafProps {
   path: MosaicPath;
@@ -41,6 +44,17 @@ export function PaneLeaf({ path, connection, connections, onSplit, onClose, onCo
     defaultOpen: false,
   });
   const [monitorMaximized, setMonitorMaximized] = useState(false);
+  const focusTerminal = useRef<(() => void) | null>(null);
+
+  // Typed into the pane's own shell, not run on a side channel: apt's raw output,
+  // the sudo prompt and dpkg's config-file questions all stay in front of the user,
+  // and a dropped connection mid-upgrade is visible instead of silent.
+  function runHostAction(action: HostAction, asRoot: boolean) {
+    if (!sessionId) return;
+    setMonitorMaximized(false);
+    void updatesRun(sessionId, action, asRoot);
+    focusTerminal.current?.();
+  }
 
   return (
     <MosaicWindow<string>
@@ -55,6 +69,13 @@ export function PaneLeaf({ path, connection, connections, onSplit, onClose, onCo
           onToggleSftp={() => sftp.setOpen((open) => !open)}
           monitorOpen={monitor.open}
           onToggleMonitor={() => monitor.setOpen((open) => !open)}
+          leading={
+            <UpdatesIndicator
+              sessionId={sessionId}
+              manageUpdates={connection.manage_updates}
+              onRun={runHostAction}
+            />
+          }
         />
       }
     >
@@ -63,7 +84,12 @@ export function PaneLeaf({ path, connection, connections, onSplit, onClose, onCo
           {/* Hidden, never unmounted, when the monitor is filling the pane: the
               terminal's SSH session has to survive being out of sight. */}
           <div className={cn("min-h-0 flex-1", monitorMaximized && monitor.open && "hidden")}>
-            <TerminalPane profile={connection} onClosed={onClose} onSessionId={setSessionId} />
+            <TerminalPane
+              profile={connection}
+              onClosed={onClose}
+              onSessionId={setSessionId}
+              focusRef={focusTerminal}
+            />
           </div>
 
           {monitor.open && sessionId && (

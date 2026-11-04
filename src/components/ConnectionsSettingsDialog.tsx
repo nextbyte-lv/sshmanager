@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Download, Upload } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,9 +57,9 @@ export function ConnectionsSettingsDialog({
     try {
       const imported = await importConnections(path);
       onImported();
-      window.alert(`Imported ${imported.length} connection${imported.length === 1 ? "" : "s"}.`);
+      toast.success(`Imported ${imported.length} connection${imported.length === 1 ? "" : "s"}`);
     } catch (err) {
-      window.alert(`Import failed: ${err}`);
+      toast.error("Import failed", { description: String(err) });
     }
   }
 

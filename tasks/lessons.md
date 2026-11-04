@@ -590,3 +590,56 @@ Also: `od` without `-v` collapses runs of identical lines to a single `*` — 64
 zero bytes come back as 17 tokens instead of 64. Any use of `od` to *transport*
 bytes rather than to eyeball them needs `-v`, and a firmware table is mostly
 padding.
+
+## `systemctl show <unit>` answers for units that do not exist
+
+`systemctl show apt-daily-upgrade.service -p Result` prints `Result=success` and
+zeroed timestamps on a host that does not have that unit at all. It exits 0 and
+prints nothing on stderr. Read naively, that is "last run succeeded".
+
+**Rule:** whenever reading unit properties with `systemctl show`, also request
+`-p LoadState` and ignore everything else unless it is `loaded`. A zero
+`...TimestampMonotonic` on a loaded unit means "has not run since boot", not
+"ran at boot".
+
+Second trap in the same place: a *service's* run history lives in memory and is
+gone after a reboot. The first version read only `apt-daily-upgrade.service`,
+so on a recently rebooted host the "last automatic run" row simply disappeared,
+while `systemctl list-timers` still showed this morning's run. The *timer*
+persists it (a stamp file under `/var/lib/systemd/timers/`, with Persistent=true).
+For epoch values use `systemctl list-timers <timer> --all --output=json`;
+`systemctl show` prints its timestamps human-formatted even with
+`--timestamp=unix` (seen on systemd 257).
+
+## `DropdownMenuLabel` outside `DropdownMenuGroup` blacks out the whole app
+
+Our shadcn `DropdownMenuLabel` wraps Base UI's `Menu.GroupLabel`, which throws
+`MenuGroupContext is missing` unless it sits inside `Menu.Group` (or
+`RadioGroup`). Radix's equivalent has no such rule, so shadcn examples written
+for Radix put a bare label at the top of a menu. The menu content renders only on
+open, so it typechecks, builds, and passes the page load. It crashes on first
+click, and with no error boundary React unmounts everything: the window goes black.
+
+**Rule:** always wrap `DropdownMenuLabel` in a `DropdownMenuGroup`. Before calling a
+UI change done, open every menu/popover it adds at least once. Their contents are
+not rendered until then.
+
+## A new sudo path must reuse the saved password — and a PTY needs a prompt matcher
+
+The first "Run updates" just typed `sudo apt …` into the terminal and left the
+user to type the password, though every other sudo path in the app
+(`run_with_sudo_output`) already answers with the connection's saved password.
+Users expect the same everywhere.
+
+An interactive PTY cannot use `sudo -S` (stdin is the keyboard), and priming the
+timestamp over a separate exec channel does not help (Debian's sudo caches
+per-tty). So `SudoAutofill` in `ssh/pty.rs` gives sudo a custom `-p` prompt
+containing `%u` and types the password only when the *expanded* prompt appears.
+The shell's echo of the command line still has the literal `%u`, so it cannot
+false-match. The autofill fires once and disarms after 60 s, so a wrong
+password is never retried.
+
+**Rule:** before shipping anything that runs sudo, check `commands/sftp.rs`'s
+`sudo_password` and use it. Never send a password into a PTY without matching a
+prompt that only sudo itself can produce.
+

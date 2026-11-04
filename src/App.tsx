@@ -6,6 +6,7 @@ import { ConnectionList } from "@/components/ConnectionList";
 import { ConnectionsSettingsDialog } from "@/components/ConnectionsSettingsDialog";
 import { Workspace } from "@/components/Workspace";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { deleteConnection, duplicateConnection, listConnections } from "@/lib/tauri";
 import { createTab } from "@/lib/workspace";
@@ -155,6 +156,8 @@ function App() {
         connections={connections}
         onImported={refresh}
       />
+
+      <Toaster position="bottom-right" />
     </main>
   );
 }

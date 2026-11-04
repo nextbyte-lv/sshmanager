@@ -16,6 +16,14 @@ export default defineConfig(async () => ({
     dedupe: ["react", "react-dom"],
   },
 
+  // The bundle is embedded in the Tauri binary and served from memory, so
+  // Vite's 500 kB warning (aimed at network download cost) doesn't apply, and
+  // splitting wouldn't help: xterm/mosaic/React are all needed at startup.
+  // Limit kept modestly above the current ~1 MB so real bloat still warns.
+  build: {
+    chunkSizeWarningLimit: 1500,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

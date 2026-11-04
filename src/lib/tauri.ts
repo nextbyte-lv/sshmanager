@@ -19,6 +19,7 @@ import type {
   SftpEntry,
   UploadEvent,
 } from "@/types/sftp";
+import type { HostAction, UpdateStatus } from "@/types/updates";
 
 export function listConnections() {
   return invoke<ConnectionProfile[]>("list_connections");
@@ -183,4 +184,21 @@ export function monitorPorts(sessionId: string) {
  */
 export function monitorMemoryModules(sessionId: string) {
   return invoke<MemoryInventory>("monitor_memory_modules", { sessionId });
+}
+
+/**
+ * Package-update status (Debian/Ubuntu). Read-only and unprivileged; it does not
+ * run `apt update`, so pending counts are as of the host's last refresh.
+ */
+export function updatesStatus(sessionId: string) {
+  return invoke<UpdateStatus>("updates_status", { sessionId });
+}
+
+/**
+ * Types the upgrade (or a reboot) into the session's terminal and presses Enter.
+ * The backend answers sudo's prompt with the connection's saved password, when it
+ * has one; the password itself never comes through here.
+ */
+export function updatesRun(sessionId: string, action: HostAction, asRoot: boolean) {
+  return invoke<void>("updates_run", { sessionId, action, asRoot });
 }

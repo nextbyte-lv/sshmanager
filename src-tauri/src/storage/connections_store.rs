@@ -47,6 +47,9 @@ pub struct ConnectionProfile {
     pub color: Option<String>,
     #[serde(default)]
     pub favorite_paths: Vec<FavoritePath>,
+    /// The user owns this server and wants the app to offer to upgrade it.
+    #[serde(default)]
+    pub manage_updates: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +79,8 @@ pub struct ConnectionInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default)]
+    pub manage_updates: bool,
 }
 
 pub struct ConnectionsStore {
@@ -121,6 +126,7 @@ impl ConnectionsStore {
                 existing.key_path = input.key_path;
                 existing.tags = input.tags;
                 existing.color = input.color;
+                existing.manage_updates = input.manage_updates;
                 existing.clone()
             }
             None => {
@@ -136,6 +142,7 @@ impl ConnectionsStore {
                     last_used_at: None,
                     color: input.color,
                     favorite_paths: Vec::new(),
+                    manage_updates: input.manage_updates,
                 };
                 self.profiles.push(profile.clone());
                 profile

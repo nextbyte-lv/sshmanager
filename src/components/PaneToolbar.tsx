@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { MosaicDirection } from "react-mosaic-component";
 import { Activity, Columns2, FolderOpen, Rows2, X } from "lucide-react";
 
@@ -14,6 +15,8 @@ interface PaneToolbarProps {
   onToggleSftp: () => void;
   monitorOpen: boolean;
   onToggleMonitor: () => void;
+  /** Status indicators shown before the buttons (e.g. package updates). */
+  leading?: ReactNode;
 }
 
 export function PaneToolbar({
@@ -24,9 +27,12 @@ export function PaneToolbar({
   onToggleSftp,
   monitorOpen,
   onToggleMonitor,
+  leading,
 }: PaneToolbarProps) {
   return (
     <div className="flex items-center gap-0.5">
+      {leading}
+
       <Button
         size="icon-xs"
         variant={sftpOpen ? "secondary" : "ghost"}
