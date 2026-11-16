@@ -1,6 +1,8 @@
 [package]
 name = "sshmanager"
-version = "0.2.0"
+# Placeholder only. The app version lives in package.json (tauri.conf.json
+# points at it), and Tauri uses that for the exe, installers and package_info.
+version = "0.0.0"
 description = "Personal SSH/SFTP session manager"
 authors = ["you"]
 edition = "2021"

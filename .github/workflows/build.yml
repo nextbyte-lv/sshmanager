@@ -39,10 +39,21 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $version = (Get-Content package.json | ConvertFrom-Json).version
           Copy-Item src-tauri/target/release/sshmanager.exe "release-assets/SshManager-$version-portable.exe"
           Copy-Item src-tauri/target/release/bundle/msi/*.msi release-assets/
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release-assets/
+
+      # Recreate the rolling release each run: otherwise the `latest` tag stays
+      # on its first commit and assets from older versions accumulate.
+      - name: Remove previous latest release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes
+          if ($LASTEXITCODE -ne 0) { Write-Host "No previous release to delete" }
+          $global:LASTEXITCODE = 0
 
       - name: Publish latest release
         uses: softprops/action-gh-release@v2
